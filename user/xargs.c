@@ -1,80 +1,95 @@
 #include "kernel/types.h"
 #include "user/user.h"
 
+int 
+getToNewline(char* buf, int start)
+{
+    // returns how many bytes to read (includes a spot for a null terminator)
+    if (start >= strlen(buf)) {
+        return -1; // no more to read
+    }
+    // returns the number of characters read, -1 if no more to read
+    for (int i = start; i < strlen(buf); i++) {
+        if (buf[i] == '\n') {
+            return i - start;
+        }
+    }
+    return strlen(buf) - start;   // if we hit '\0'
+}
+
 int
-getNewlineIdx(char* buf, int start) {
-    // read from buf until newline or EOF, return length or -1 if error
-    int i = start;
-    while (buf[i] != '\n' && buf[i] != '\0') {
-        i++;
+splitSpace(char* line, char** args) {
+    printf("In split space\n");
+    printf("\tString: |%s|\n", line);
+    int argCount = 0;
+    int startOfStr = 0;
+    printf("Entering for loop\n");
+    for (int i = 0; i <= strlen(line); i++) {
+        printf("\ti=%d\n", i);
+        char out[2];
+        out[0] = line[i];
+        out[1] = '\0';
+        printf("\tstr[i]=%s\n", out);
+        if (line[i] == ' ' || line[i] == '\0') {
+            printf("\tin if statement\n");
+            char arg[60];   // max arg length
+            memmove(arg, line + startOfStr, i - startOfStr); // move from the start string pointer to the args
+            printf("\tmade past mem move\n");
+            arg[i] = '\0';  // set null terminator
+            printf("\targ: %s\n", arg);
+            args[argCount] = arg;
+            printf("\targs: %s\n", args[argCount]);
+            argCount++;
+            startOfStr = i + 1; // reset start string pointer
+        }
     }
-
-    if (buf[i] == '\0') {
-        return -1;  // indicate EOF
-    }
-    return i;
-
+    return argCount;
 }
 
 int
 main(int argc, char *argv[])
 {
-    int const MAX_BUF = 512;
-    char buf[MAX_BUF];
-    int const MAX_ARGS = 32;
-    int i = 0;
-    char* start = buf;
-
-    // verify we have a command
-    if (argc < 2) {
-        fprintf(2, "Usage: xargs command [initial-arguments]\n");
+    char buf[512];
+    if (read(0, buf, sizeof(buf)) < 0) {    // read from stdin
+        fprintf(2, "xargs: error reading stdin\n");
         exit(1);
     }
-    
-    const char* command = argv[1];  // get the command to execute for each line
-    
-    // create new arguments to pass into exec
-    char* args[MAX_ARGS];
-    for (int j = 2; j < argc; j++) {
-        args[j - 2] = argv[j];
-    }
-    
-    printf("Starting\n");
-    while (read(0, start, 1) == 1 && i < MAX_BUF) { // read while we get 1 byte and we haven't overwritten the buffer
-        if (buf[i] == '\n' || buf[i] == '\0') {
-            printf("read a newline\n");
-            int pid = fork();
-            if (pid == -1) {
-                printf("xargs: fork failed\n");
-                exit(1);
-            }
 
-            if (pid == 0) { // if child
-                printf("executing command: %s\n", command);
-                printf("with argument: %s\n", args[0]);
-                printf("with argument: %s\n", args[1]);
+    int start = 0;
+    printf("calling get to new line\n");
+    int len = getToNewline(buf, start);
+    int count = 0;
+    while (len != -1) { // iterate over each stdin line
+        // get the substring
+        char line[60];  // max line length
+        memcpy(line, buf + start, len); // copy from the buffer + start to the line memory
+        line[len]= '\0';
+        printf("length: %d\n", len);
+        printf("got line |%s|\n", line);
+        char* args[100]; // max 100 arguments
+        printf("calling split space\n");
+        int writtenArgs = splitSpace(line, args);
 
-                args[argc] = 
-                exec(command, args);
-                // if fail
-                printf("xargs: exec error\n");
-                exit(1);
-            }
-            else {  // if parent
-                wait(&pid);
-                continue;
-            }
+        for (int i = 0; i < writtenArgs; i++) {
+            printf("Got line %d parameter %d: %s\n", count, i, args[i]);
         }
-    }
 
+
+        
+        start += len + 1; // move start to next character after newline
+        len = getToNewline(buf, start);
+        count++;
+    }
     // while we read from stdin
         // if it is a newline, fork
             // if parent
                 // wait
                 // continue
-            // if child, exec with the command and the arguments plus the read line
+            // if child
+                // get command
+                // get xargs arguments
+                // prepend to stdin arguments
+                // exec
         // if it is EOF, break        
     
-    exit(0);
-
 }
