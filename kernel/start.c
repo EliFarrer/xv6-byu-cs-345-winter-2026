@@ -8,6 +8,8 @@ void main();
 void timerinit();
 
 // entry.S needs one stack per CPU.
+// 4096 is typical page size, NCPU is number of cores or cpus
+// __attribute__((aligned (16))) places the stack at a multiple of 16 bytes
 __attribute__ ((aligned (16))) char stack0[4096 * NCPU];
 
 // entry.S jumps here in machine mode on stack0.

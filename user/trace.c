@@ -9,7 +9,7 @@ main(int argc, char *argv[])
   int i;
   char *nargv[MAXARG];
 
-  if(argc < 3 || (argv[1][0] < '0' || argv[1][0] > '9')){
+  if(argc < 3 || (argv[1][0] < '0' || argv[1][0] > '9')){ // need to have two 
     fprintf(2, "Usage: %s mask command\n", argv[0]);
     exit(1);
   }
@@ -19,11 +19,12 @@ main(int argc, char *argv[])
     exit(1);
   }
   
+  // parse out the trace and mask
   for(i = 2; i < argc && i < MAXARG; i++){
     nargv[i-2] = argv[i];
   }
   nargv[argc-2] = 0;
-  exec(nargv[0], nargv);
+  exec(nargv[0], nargv);  // execute the command
   printf("trace: exec failed\n");
   exit(0);
 }
