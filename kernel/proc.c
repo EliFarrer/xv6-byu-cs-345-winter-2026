@@ -119,6 +119,7 @@ allocproc(void)
       release(&p->lock);
     }
   }
+  proc->traceMask = 0;
   return 0;
 
 found:
@@ -295,6 +296,7 @@ fork(void)
     return -1;
   }
   np->sz = p->sz;
+  np->traceMask = p->traceMask; // copy the traceMask over
 
   // copy saved user registers.
   *(np->trapframe) = *(p->trapframe);

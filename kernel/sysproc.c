@@ -91,3 +91,13 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+
+uint64
+sys_trace(void)
+{
+  // use argint to get the argument from user space
+  int arg;
+  argint(0, &arg);
+  myproc()->traceMask = arg;
+  return 0;
+}
