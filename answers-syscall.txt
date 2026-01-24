@@ -1,0 +1,5 @@
+(1) `syscall` is called by `usertrap()` in `kernel/trap.c`.
+(2) `p->trapframe->a7` is `7` which is the value for `SYS_exec`. It is being moved into the register `a7`. This is the first system call that is called to execute the program.
+(3) Panics at:   num = * (int * ) 0;     80001cb2:	00002683          	lw	a3,0(zero) # 0 <_entry-0x80000000>. So the `a3` register represents `num`.
+(4) The kernel crashes because it is trying to move something at address 0 into something in the kernel space. 0 is not in th ekernel address space. The `syscause` error is `0xd` = `14` which corresponds to the message `Reserved`.
+(5) `initcode.S` was the process that broke. It has processid `1`.
