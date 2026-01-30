@@ -1,5 +1,17 @@
 #ifndef __ASSEMBLER__
 
+// returns stackframe pointer
+static inline uint64
+r_fp()
+{
+  uint64 x;
+  asm volatile("mv %0, s0" : "=r" (x) );    // asm lets you embed assmbly instructions in c code
+                                            // volatile makes it so the compiler won't remove this code through optimization
+                                            // the =r stores the value from %0 into the variable x
+                                            // the %0 is the indexed variable it will store it into (x because x is the 0th variable in the block)
+  return x;
+}
+
 // which hart (core) is this?
 static inline uint64
 r_mhartid()

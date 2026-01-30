@@ -25,6 +25,29 @@ static struct {
 
 static char digits[] = "0123456789abcdef";
 
+void
+backtrace()
+{
+  uint64 fp = r_fp();                 // the value in s0 (the framepointer)
+  int currentPage = 0;//PGROUNDDOWN(fp);
+  uint64 prev_fp = *(uint64*)(fp-16);
+  int prevPage = 0;//PGROUNDDOWN(last_fp);
+
+  while (currentPage == prevPage) {
+    uint64 ra = *(uint64*)(fp-8);
+    currentPage = PGROUNDDOWN(fp);
+    prevPage = PGROUNDDOWN(prev_fp);
+    // printf("Backtrace address: %p, page: %d\n", (void *)ra, currentPage);
+    printf("%p\n", (void *)ra);
+    fp = prev_fp;
+    prev_fp = *(uint64*)(fp-16);
+  }
+  // uint64 ra = *(uint64*)(fp-8);       // get the value in the framepointer - 8
+  // printf("Getting the current frame pointer in s0: %p\n", (unsigned int*) fp);
+  // printf("Getting the current return address in ra: %p\n", (void *) ra);
+  // printf("Getting the previous frame pointer: %p\n", (unsigned int*) fp-16);
+}
+
 static void
 printint(long long xx, int base, int sign)
 {
@@ -162,6 +185,7 @@ printf(char *fmt, ...)
 void
 panic(char *s)
 {
+  backtrace();
   pr.locking = 0;
   printf("panic: ");
   printf("%s\n", s);
