@@ -1,0 +1,9 @@
+1: a2
+2: f: 0000000000000012, g: 0000000000000000, but the compiler inlined the functions. It figured out what they did and simplified them so it wouldn't have to make another call. This means they aren't actually called.
+3: 00000000000006fe
+4: 3c, the next line of assembly code
+5: He110 World, 0xE110 is 57616 in hex, and the number 0x00646c72 corresponds to the characters \0dlr.
+6: 0x726c6400
+7: You wouldn't need to change the order of 57616 because it is interpreted as a number either way.
+8: Whatever value or address is in r2
+9: Printf just moves all of the register values into their correct places and puts it on the user to use printf correctly.
