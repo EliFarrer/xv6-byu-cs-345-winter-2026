@@ -107,7 +107,7 @@ allocpid()
 // and return with p->lock held.
 // If there are no free procs, or a memory allocation fails, return 0.
 static struct proc*
-allocproc(void)
+allocproc(void) // allocates memory for a process
 {
   struct proc *p;
 
@@ -202,6 +202,17 @@ proc_pagetable(struct proc *p)
     return 0;
   }
 
+  struct usyscall *sys = (struct usyscall*)kalloc();   // allocates a page of memory 
+  sys->pid = p->pid;
+  
+  // Creates a page right beneath the trapframe to store our pid
+  if(mappages(pagetable, USYSCALL, PGSIZE,                      // add an entry to the pagetable that maps USYSCALL vm to 
+              (uint64)sys, PTE_U | PTE_R) < 0){
+    uvmunmap(pagetable, USYSCALL, 1, 0);                        // Not sure if this is required
+    uvmfree(pagetable, 0);                                      // Not sure if this is required
+    return 0;
+  }
+
   return pagetable;
 }
 
@@ -212,6 +223,7 @@ proc_freepagetable(pagetable_t pagetable, uint64 sz)
 {
   uvmunmap(pagetable, TRAMPOLINE, 1, 0);
   uvmunmap(pagetable, TRAPFRAME, 1, 0);
+  uvmunmap(pagetable, USYSCALL, 1, 0);
   uvmfree(pagetable, sz);
 }
 
