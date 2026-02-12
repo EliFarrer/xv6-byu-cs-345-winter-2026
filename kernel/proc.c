@@ -272,17 +272,18 @@ int
 growproc(int n)
 {
   uint64 sz;
-  struct proc *p = myproc();
+  struct proc *p = myproc();      // gets current process
 
   sz = p->sz;
-  if(n > 0){
+  if(n > 0){    // allocation
     if((sz = uvmalloc(p->pagetable, sz, sz + n, PTE_W)) == 0) {
+      // if sz = 0, failed uvmalloc
       return -1;
     }
-  } else if(n < 0){
+  } else if(n < 0){   // deallocation
     sz = uvmdealloc(p->pagetable, sz, sz + n);
   }
-  p->sz = sz;
+  p->sz = sz; // set the new size
   return 0;
 }
 

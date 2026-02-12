@@ -257,23 +257,24 @@ uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz, int xperm)
   uint64 a;
   int sz;
 
-  if(newsz < oldsz)
+  if(newsz < oldsz) // user-stupid case, new size is not bigger than old size
     return oldsz;
 
   oldsz = PGROUNDUP(oldsz);
   for(a = oldsz; a < newsz; a += sz){
     sz = PGSIZE;
-    mem = kalloc();
-    if(mem == 0){
-      uvmdealloc(pagetable, a, oldsz);
+    mem = kalloc();     // allocates a page
+    if(mem == 0){       // if kalloc failed
+      uvmdealloc(pagetable, a, oldsz);    // delete it if failed
       return 0;
     }
-#ifndef LAB_SYSCALL
-    memset(mem, 0, sz);
+#ifndef LAB_SYSCALL       // lab syscall does not include this line
+    memset(mem, 0, sz);   // fill the whole page with 0s
 #endif
-    if(mappages(pagetable, a, sz, (uint64)mem, PTE_R|PTE_U|xperm) != 0){
-      kfree(mem);
-      uvmdealloc(pagetable, a, oldsz);
+    if(mappages(pagetable, a, sz, (uint64)mem, PTE_R|PTE_U|xperm) != 0){  // maps a va to a pa
+      // if unsuccessful
+      kfree(mem);   // free the allocation
+      uvmdealloc(pagetable, a, oldsz);    // deallocate the page
       return 0;
     }
   }
@@ -487,12 +488,50 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
 }
 
 
-#ifdef LAB_PGTBL
+// #ifdef LAB_PGTBL
+void
+vmprint_recursive(pagetable_t pagetable, int level, uint64* va) {
+  if (level == 2) {
+    *va = 0x0;
+  }
+  for (uint64 i = 0; i < 512; i++) {
+    uint64* pte = &pagetable[i];
+
+    // printf("oring %lu\n", i);
+    // printf("PTE: %p\n", (uint64*)*pte);
+    // printf("is valid %lu\n", *pte & PTE_V);
+    if (!(*pte & PTE_V)) { // if the valid bit is not set, continue
+      // printf("Continuing\n");
+      continue;
+    }
+    *va = *va | (i << PXSHIFT(level));    // set the 9 bits based on the level in the va
+
+    pagetable_t pagetable = (pagetable_t)PTE2PA(*pte);  // shifts off the flag bits and shifts left 3 spots for 0's
+        
+    // print the leading dots based on the level
+    for (int i = level; i <= 2; i++) {
+      printf(" ..");
+    }
+    // print the actual info
+    printf("%p: pte %p pa %p\n", (uint64*)*va, (uint64*)*pte, pagetable);
+
+    if (level != 0) { // if we can't go any farther into the recursion
+      vmprint_recursive(pagetable, --level, va);
+    }
+  }
+}
+
 void
 vmprint(pagetable_t pagetable) {
   // your code here
+  printf("page table %p\n", pagetable);
+  uint64 va = 0x0;
+  vmprint_recursive(pagetable, 2, &va);
+
 }
-#endif
+
+
+// #endif
 
 
 
