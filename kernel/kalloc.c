@@ -2,6 +2,28 @@
 // kernel stacks, page-table pages,
 // and pipe buffers. Allocates whole 4096-byte pages.
 
+/*
+TODO:
+- add a superinit() which will initialize the superpage space right before PHYSTOP (maybe 5 superpages?)
+- create another spinlock/run struct for superpages
+- edit kinit so it doesn't go all the way to PHYSTOP, but a few superpages before
+- create a superkinit that goes from the end of kinit to PHYSTOP
+- modify kfree so it doesn't let you free memory past PHYSTOP
+- add constants
+  - add a constant for the beginning of superpage memory or end of page memory (what was PHYSTOP)
+  - add a constant for superpage size
+  - add a constant that will bring you to the nearest superpage boundary
+
+Questions:
+- do I need another spinlock for the superpages, probably, but it can be separate because the two memory locations are separate
+
+Part 2 (vm.c):
+- How do we know if it is a superpage or a normal page? Is it just if the flag is PTE_V and PTE_R rather than just PTE_V?
+- Do we just need to switch it to look for those flags in in uvmcopy and then deal with the sizes?
+
+*/
+
+
 #include "types.h"
 #include "param.h"
 #include "memlayout.h"
@@ -11,6 +33,9 @@
 
 void freerange(void *pa_start, void *pa_end);
 
+// extern means it is defined somewhere else
+// creates a char array
+// the start of free virtual memory
 extern char end[]; // first address after kernel.
                    // defined by kernel.ld.
 
@@ -18,6 +43,7 @@ struct run {
   struct run *next;
 };
 
+// defining and instantiating a global struct called kmem, has a lock and a pointer to a run
 struct {
   struct spinlock lock;
   struct run *freelist;
@@ -26,17 +52,17 @@ struct {
 void
 kinit()
 {
-  initlock(&kmem.lock, "kmem");
-  freerange(end, (void*)PHYSTOP);
+  initlock(&kmem.lock, "kmem");     // creates a spinlock
+  freerange(end, (void*)PHYSTOP);   // free everything from after the kernel to PHYSTOP
 }
 
 void
 freerange(void *pa_start, void *pa_end)
 {
   char *p;
-  p = (char*)PGROUNDUP((uint64)pa_start);
-  for(; p + PGSIZE <= (char*)pa_end; p += PGSIZE)
-    kfree(p);
+  p = (char*)PGROUNDUP((uint64)pa_start); // gets the start of the next page boundary
+  for(; p + PGSIZE <= (char*)pa_end; p += PGSIZE) // starts at p and loops until the end (the p + PGSIZE makes it so it doesn't free one more after pa_end)
+    kfree(p);   // because kfree prepends, the first page is actually right next to PHYSTOP
 }
 
 // Free the page of physical memory pointed at by pa,
@@ -48,6 +74,7 @@ kfree(void *pa)
 {
   struct run *r;
 
+  // checks that you passed it the start of a page || it is before the start || after the stop
   if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
     panic("kfree");
 
@@ -57,6 +84,7 @@ kfree(void *pa)
   r = (struct run*)pa;
 
   acquire(&kmem.lock);
+  // prepends the current pagetable to the linked list
   r->next = kmem.freelist;
   kmem.freelist = r;
   release(&kmem.lock);
@@ -72,11 +100,26 @@ kalloc(void)
 
   acquire(&kmem.lock);
   r = kmem.freelist;
-  if(r)
+  if(r) // if it exists?
     kmem.freelist = r->next;
   release(&kmem.lock);
 
   if(r)
-    memset((char*)r, 5, PGSIZE); // fill with junk
-  return (void*)r;
+    memset((char*)r, 5, PGSIZE); // fill with junk (5's)
+  return (void*)r;  // returns a pointer to the start of the memory
+}
+
+void
+superalloc(void)
+{
+  // allocate 2Mb chunk of memory
+  // How do I make sure kfree doesn't walk over all of this?
+
+}
+
+void
+superfree(void)
+{
+  // free the chunk of memory
+
 }

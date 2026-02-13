@@ -39,7 +39,7 @@ uint64
 sys_sbrk(void)
 {
   uint64 addr;
-  int n;
+  int n;        // the number of bytes to grow it
 
   argint(0, &n);
   addr = myproc()->sz;
