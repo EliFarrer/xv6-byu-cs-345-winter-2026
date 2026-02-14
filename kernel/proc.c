@@ -188,7 +188,7 @@ proc_pagetable(struct proc *p)
   // only the supervisor uses it, on the way
   // to/from user space, so not PTE_U.
   if(mappages(pagetable, TRAMPOLINE, PGSIZE,
-              (uint64)trampoline, PTE_R | PTE_X) < 0){
+              (uint64)trampoline, PTE_R | PTE_X, PAGELEVEL) < 0){
     uvmfree(pagetable, 0);
     return 0;
   }
@@ -196,7 +196,7 @@ proc_pagetable(struct proc *p)
   // map the trapframe page just below the trampoline page, for
   // trampoline.S.
   if(mappages(pagetable, TRAPFRAME, PGSIZE,
-              (uint64)(p->trapframe), PTE_R | PTE_W) < 0){
+              (uint64)(p->trapframe), PTE_R | PTE_W, PAGELEVEL) < 0){
     uvmunmap(pagetable, TRAMPOLINE, 1, 0);
     uvmfree(pagetable, 0);
     return 0;
@@ -207,7 +207,7 @@ proc_pagetable(struct proc *p)
   
   // Creates a page right beneath the trapframe to store our pid
   if(mappages(pagetable, USYSCALL, PGSIZE,                      // add an entry to the pagetable that maps USYSCALL vm to 
-              (uint64)sys, PTE_U | PTE_R) < 0){
+              (uint64)sys, PTE_U | PTE_R, PAGELEVEL) < 0){
     uvmunmap(pagetable, USYSCALL, 1, 0);                        // Not sure if this is required
     uvmfree(pagetable, 0);                                      // Not sure if this is required
     return 0;
@@ -223,6 +223,7 @@ proc_freepagetable(pagetable_t pagetable, uint64 sz)
 {
   uvmunmap(pagetable, TRAMPOLINE, 1, 0);
   uvmunmap(pagetable, TRAPFRAME, 1, 0);
+  /* WARNING */
   uvmunmap(pagetable, USYSCALL, 1, 0);
   uvmfree(pagetable, sz);
 }
@@ -274,13 +275,15 @@ growproc(int n)
   uint64 sz;
   struct proc *p = myproc();      // gets current process
 
-  sz = p->sz;
+  sz = p->sz;   // process size is the highest valid virtual address. In xv6, size == address.
   if(n > 0){    // allocation
     if((sz = uvmalloc(p->pagetable, sz, sz + n, PTE_W)) == 0) {
       // if sz = 0, failed uvmalloc
       return -1;
     }
   } else if(n < 0){   // deallocation
+    /* WARNING */
+    // int level = (sz - oldsize) >= SUPERPGSIZE ? SUPERPAGELEVEL : PAGELEVEL; // if the size is greater than or equal to that of a superpage, then deallocate that much
     sz = uvmdealloc(p->pagetable, sz, sz + n);
   }
   p->sz = sz; // set the new size
