@@ -81,9 +81,12 @@ kfree(void *pa)
   struct run *r;
 
   // checks that you passed it the start of a page || it is before the start || after the stop
-  if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= SUPERPGSTART)
+  if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= SUPERPGSTART) {
+    printf("pa: %p\n", pa);
+    printf("end: %p\n", end);
+    printf("superpgstart, %lx\n", SUPERPGSTART);
     panic("kfree");
-
+  }
   // Fill with junk to catch dangling refs.
   memset(pa, 1, PGSIZE);
 

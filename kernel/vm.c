@@ -241,7 +241,8 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
       panic("uvmunmap: not a leaf");
     if(do_free){
       uint64 pa = PTE2PA(*pte);
-      // here check to see if the pagetable is pointing to a superpage or not
+      
+      // different free cases
       if (sz == PGSIZE) {
         kfree((void*)pa);
       } else {
@@ -399,22 +400,30 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
   uint flags;
   char *mem;
   int szinc;
-  int level = 0;
-
+  int level;
+  
   for(i = 0; i < sz; i += szinc){
     szinc = PGSIZE;
-    szinc = PGSIZE;
+    level = 0;
     if((pte = walk(old, i, 0, &level)) == 0)
       panic("uvmcopy: pte should exist");
+    if (level == SUPERPAGELEVEL) {
+      szinc = SUPERPGSIZE;
+    }
     if((*pte & PTE_V) == 0)
       panic("uvmcopy: page not present");
     pa = PTE2PA(*pte);
     flags = PTE_FLAGS(*pte);
-    if((mem = kalloc()) == 0)
+    if (szinc == PGSIZE) {
+      mem = kalloc();
+    } else {
+      mem = superkalloc();
+    }
+    if(mem == 0)
       goto err;
-    memmove(mem, (char*)pa, PGSIZE);
+    memmove(mem, (char*)pa, szinc);
     debug("uvmcopy mappages\n");
-    if(mappages(new, i, PGSIZE, (uint64)mem, flags, &level) != 0){
+    if(mappages(new, i, szinc, (uint64)mem, flags, &level) != 0){
       kfree(mem);
       goto err;
     }
@@ -422,7 +431,7 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
   return 0;
 
  err:
-  uvmunmap(new, 0, i / PGSIZE, 1);
+  uvmunmap(new, 0, i / szinc, 1);
   return -1;
 }
 

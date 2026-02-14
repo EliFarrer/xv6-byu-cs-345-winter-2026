@@ -1,4 +1,4 @@
-#define DEBUG
+// #define DEBUG
 
 #ifdef DEBUG
 #define debug(string) printf(string)
