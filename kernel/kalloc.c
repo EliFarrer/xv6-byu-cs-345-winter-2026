@@ -32,6 +32,7 @@ Part 2 (vm.c):
 #include "defs.h"
 
 void freerange(void *pa_start, void *pa_end);
+void freesuperrange(void *pa_start, void *pa_end);
 
 // extern means it is defined somewhere else
 // creates a char array
@@ -44,18 +45,23 @@ struct run {
 };
 
 // defining and instantiating a global struct called kmem, has a lock and a pointer to a run
-struct {
+struct pagelist {
   struct spinlock lock;
   struct run *freelist;
-} kmem;
+};
+
+struct pagelist kmem;
+struct pagelist superkmem;
 
 void
 kinit()
 {
   initlock(&kmem.lock, "kmem");     // creates a spinlock
-  freerange(end, (void*)PHYSTOP);   // free everything from after the kernel to PHYSTOP
+  freerange(end, (void*)SUPERPGSTART);   // free everything from after the kernel to SUPERPGSTART
+  freesuperrange((void*)SUPERPGSTART, (void*)PHYSTOP);
 }
 
+// in the future go in and pass the kfree function in as a parameter and pass in a size. Then 
 void
 freerange(void *pa_start, void *pa_end)
 {
@@ -75,7 +81,7 @@ kfree(void *pa)
   struct run *r;
 
   // checks that you passed it the start of a page || it is before the start || after the stop
-  if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
+  if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= SUPERPGSTART)
     panic("kfree");
 
   // Fill with junk to catch dangling refs.
@@ -110,16 +116,54 @@ kalloc(void)
 }
 
 void
+superfree(void *pa)
+{
+  // free the chunk of memory
+  struct run *r;
+
+  // checks that you passed it the start of a page || it is before the start || after the stop
+  if(((uint64)pa % SUPERPGSIZE) != 0 || (char*)pa < (char*)SUPERPGSTART || (uint64)pa >= PHYSTOP)
+    panic("kfree");
+
+  // Fill with junk to catch dangling refs.
+  memset(pa, 1, SUPERPGSIZE);
+
+  r = (struct run*)pa;
+
+  acquire(&superkmem.lock);
+  // prepends the current pagetable to the linked list
+  r->next = superkmem.freelist;
+  superkmem.freelist = r;
+  release(&superkmem.lock);
+}
+
+void
+freesuperrange(void *pa_start, void *pa_end)
+{
+  char *p;
+  p = (char*)SUPERPGROUNDUP((uint64)pa_start); // gets the start of the next page boundary
+  for(; p + SUPERPGSIZE <= (char*)pa_end; p += SUPERPGSIZE) // starts at p and loops until the end (the p + SUPERPGSIZE makes it so it doesn't free one more after pa_end)
+    superfree(p);   // because kfree prepends, the first page is actually right next to PHYSTOP
+}
+
+// Allocate one 4096-byte page of physical memory.
+// Returns a pointer that the kernel can use.
+// Returns 0 if the memory cannot be allocated.
+
+void*
 superalloc(void)
 {
   // allocate 2Mb chunk of memory
   // How do I make sure kfree doesn't walk over all of this?
+  struct run *r;
 
-}
+  acquire(&superkmem.lock);
+  r = superkmem.freelist;
+  if(r) // if it exists?
+    superkmem.freelist = r->next;
+  release(&superkmem.lock);
 
-void
-superfree(void)
-{
-  // free the chunk of memory
-
+  if(r)
+    memset((char*)r, 6, SUPERPGSIZE); // fill with junk (6's)
+  return (void*)r;  // returns a pointer to the start of the memory
 }

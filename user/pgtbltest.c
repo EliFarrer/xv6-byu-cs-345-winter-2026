@@ -85,27 +85,28 @@ print_kpgtbl()
 
 
 void
-supercheck(uint64 s)
+supercheck(uint64 s)  // s is the first page after the end of the kernel
 {
   pte_t last_pte = 0;
 
-  for (uint64 p = s;  p < s + 512 * PGSIZE; p += PGSIZE) {
-    pte_t pte = (pte_t) pgpte((void *) p);
+  for (uint64 p = s;  p < s + 512 * PGSIZE; p += PGSIZE) {  // iterate over everything except for one superpage at the end
+    pte_t pte = (pte_t) pgpte((void *) p);                  // cast the pointer p to a pagetable entry
     if(pte == 0)
       err("no pte");
-    if ((uint64) last_pte != 0 && pte != last_pte) {
+    if ((uint64) last_pte != 0 && pte != last_pte) {        // skip the first iteration, error if they are different
         err("pte different");
     }
-    if((pte & PTE_V) == 0 || (pte & PTE_R) == 0 || (pte & PTE_W) == 0){
+    if((pte & PTE_V) == 0 || (pte & PTE_R) == 0 || (pte & PTE_W) == 0){ // error if V, R, or W is not set
       err("pte wrong");
     }
     last_pte = pte;
   }
 
   for(int i = 0; i < 512; i += PGSIZE){
-    *(int*)(s+i) = i;
+    *(int*)(s+i) = i; // start at the first page and set the first half of the pte to the index
   }
 
+  // verify the for loop above worked
   for(int i = 0; i < 512; i += PGSIZE){
     if(*(int*)(s+i) != i)
       err("wrong value");
@@ -120,13 +121,13 @@ superpg_test()
   printf("superpg_test starting\n");
   testname = "superpg_test";
   
-  char *end = sbrk(N);
+  char *end = sbrk(N);  // create more memory, this will call sys_sbrk which will call growproc. I need to handle everything from there
   if (end == 0 || end == (char*)0xffffffffffffffff)
     err("sbrk failed");
   
-  uint64 s = SUPERPGROUNDUP((uint64) end);
+  uint64 s = SUPERPGROUNDUP((uint64) end);  // get the next page after the end of the kernel
   supercheck(s);
-  if((pid = fork()) < 0) {
+  if((pid = fork()) < 0) {    // forces it to work with fork
     err("fork");
   } else if(pid == 0) {
     supercheck(s);

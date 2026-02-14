@@ -100,13 +100,14 @@ walk(pagetable_t pagetable, uint64 va, int alloc)
 
   for(int level = 2; level > 0; level--) {
     pte_t *pte = &pagetable[PX(level, va)];
-    if(*pte & PTE_V) {
+    if(*pte & PTE_V) {      // this is what checks to see if it is at the end of walking.
       pagetable = (pagetable_t)PTE2PA(*pte);
-#ifdef LAB_PGTBL
+// #ifdef LAB_PGTBL
+      // by default it will iterate from the 2nd to 0th level, but this code lets it return early if it has reached a leaf.
       if(PTE_LEAF(*pte)) {
         return pte;
       }
-#endif
+// #endif
     } else {
       if(!alloc || (pagetable = (pde_t*)kalloc()) == 0)
         return 0;
@@ -212,6 +213,7 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
       panic("uvmunmap: not a leaf");
     if(do_free){
       uint64 pa = PTE2PA(*pte);
+      // here check to see if the pagetable is pointing to a superpage or not
       kfree((void*)pa);
     }
     *pte = 0;
@@ -349,7 +351,7 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
     szinc = PGSIZE;
     if((pte = walk(old, i, 0)) == 0)
       panic("uvmcopy: pte should exist");
-    if((*pte & PTE_V) == 0)   // check here for superpages
+    if((*pte & PTE_V) == 0)   // check here for superpages?
       panic("uvmcopy: page not present");
     pa = PTE2PA(*pte);
     flags = PTE_FLAGS(*pte);
