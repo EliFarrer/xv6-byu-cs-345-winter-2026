@@ -278,6 +278,7 @@ growproc(int n)
 
   sz = p->sz;   // process size is the highest valid virtual address. In xv6, size == address.
   if(n > 0){    // allocation
+    printf("Growproc uvmalloc\n");
     if((sz = uvmalloc(p->pagetable, sz, sz + n, PTE_W)) == 0) {
       // if sz = 0, failed uvmalloc
       return -1;
@@ -285,6 +286,7 @@ growproc(int n)
   } else if(n < 0){   // deallocation
     /* WARNING */
     // int level = (sz - oldsize) >= SUPERPGSIZE ? SUPERPAGELEVEL : PAGELEVEL; // if the size is greater than or equal to that of a superpage, then deallocate that much
+    printf("Growproc uvmdealloc\n");
     sz = uvmdealloc(p->pagetable, sz, sz + n);
   }
   p->sz = sz; // set the new size

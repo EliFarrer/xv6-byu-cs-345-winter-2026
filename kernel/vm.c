@@ -166,6 +166,7 @@ kvmmap(pagetable_t kpgtbl, uint64 va, uint64 pa, uint64 sz, int perm)
 int
 mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm, int* exitLevel)
 {
+  // printf("mappages called with exitLevel: %d, size: %d\n", *exitLevel, (int)size);
   uint64 a, last;
   pte_t *pte;
 
@@ -298,33 +299,40 @@ uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz, int xperm)
   for(a = oldsz; a < newsz; a += sz){
     if ((a % SUPERPGSIZE == 0) && (newsz - a >= SUPERPGSIZE)) {   // superpage boundary and we can fit all the data on a superpage
       sz = SUPERPGSIZE;
+      debug("uvmalloc superkalloc\n");
       if ((mem = superkalloc()) == 0) {   // if we don't have any more superpages, just do normal pages
         uvmdealloc(pagetable, a, oldsz); // superpage exit level 1
         sz = PGSIZE;
+        debug("uvmalloc superkalloc failed, kalloc instead\n");
         mem = kalloc();
       }
     } else {
       sz = PGSIZE;
+      debug("uvmalloc kalloc\n");
       mem = kalloc();     // allocates a page
     }
     if(mem == 0){       // if kalloc failed
+      debug("uvmalloc kalloc failed, uvmdealloc\n");
       uvmdealloc(pagetable, a, oldsz);    // delete it if failed, level 0 for page
       return 0;
     }
-#ifndef LAB_SYSCALL       // lab syscall does not include this line
     memset(mem, 0, sz);   // fill the whole page with 0s
-#endif
     int pgtype = sz == PGSIZE ? PAGELEVEL : SUPERPAGELEVEL;
+    // printf("uvmalloc mappages with pgtype: %d, size: %d\n", pgtype, sz);
     if(mappages(pagetable, a, sz, (uint64)mem, PTE_R|PTE_U|xperm, &pgtype)){  // maps a va to a pa
       // if unsuccessful
+      debug("mappages unsuccessful\n");
       if (sz == SUPERPGSIZE) {
+        debug("uvmalloc mappages unsuccessful, superkfree\n");
         superkfree(mem);
       } else {
+        debug("uvmalloc mappages unsuccessful, kfree\n");
         kfree(mem);   // free the allocation
       }
       uvmdealloc(pagetable, a, oldsz);    // deallocate the page, 0 if PAGE, 1 if SUPERPAGE
       return 0;
     }
+    debug("mappages successful\n");
   }
   return newsz;
 }
@@ -398,13 +406,14 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
     szinc = PGSIZE;
     if((pte = walk(old, i, 0, &level)) == 0)
       panic("uvmcopy: pte should exist");
-    if((*pte & PTE_V) == 0)   // check here for superpages?
+    if((*pte & PTE_V) == 0)
       panic("uvmcopy: page not present");
     pa = PTE2PA(*pte);
     flags = PTE_FLAGS(*pte);
     if((mem = kalloc()) == 0)
       goto err;
     memmove(mem, (char*)pa, PGSIZE);
+    debug("uvmcopy mappages\n");
     if(mappages(new, i, PGSIZE, (uint64)mem, flags, &level) != 0){
       kfree(mem);
       goto err;

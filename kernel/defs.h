@@ -1,3 +1,11 @@
+#define DEBUG
+
+#ifdef DEBUG
+#define debug(string) printf(string)
+#else
+#define debug(string)
+#endif
+
 #ifdef LAB_MMAP
 typedef unsigned long size_t;
 typedef long int off_t;
