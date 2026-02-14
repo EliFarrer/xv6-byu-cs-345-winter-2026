@@ -116,7 +116,7 @@ kalloc(void)
 }
 
 void
-superfree(void *pa)
+superkfree(void *pa)
 {
   // free the chunk of memory
   struct run *r;
@@ -143,15 +143,15 @@ freesuperrange(void *pa_start, void *pa_end)
   char *p;
   p = (char*)SUPERPGROUNDUP((uint64)pa_start); // gets the start of the next page boundary
   for(; p + SUPERPGSIZE <= (char*)pa_end; p += SUPERPGSIZE) // starts at p and loops until the end (the p + SUPERPGSIZE makes it so it doesn't free one more after pa_end)
-    superfree(p);   // because kfree prepends, the first page is actually right next to PHYSTOP
+    superkfree(p);   // because kfree prepends, the first page is actually right next to PHYSTOP
 }
 
 // Allocate one 4096-byte page of physical memory.
 // Returns a pointer that the kernel can use.
 // Returns 0 if the memory cannot be allocated.
 
-void*
-superalloc(void)
+void *
+superkalloc(void)
 {
   // allocate 2Mb chunk of memory
   // How do I make sure kfree doesn't walk over all of this?
