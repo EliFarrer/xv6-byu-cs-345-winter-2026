@@ -187,8 +187,9 @@ proc_pagetable(struct proc *p)
   // at the highest user virtual address.
   // only the supervisor uses it, on the way
   // to/from user space, so not PTE_U.
+  int level = PAGELEVEL;
   if(mappages(pagetable, TRAMPOLINE, PGSIZE,
-              (uint64)trampoline, PTE_R | PTE_X, PAGELEVEL) < 0){
+              (uint64)trampoline, PTE_R | PTE_X, &level) < 0){
     uvmfree(pagetable, 0);
     return 0;
   }
@@ -196,7 +197,7 @@ proc_pagetable(struct proc *p)
   // map the trapframe page just below the trampoline page, for
   // trampoline.S.
   if(mappages(pagetable, TRAPFRAME, PGSIZE,
-              (uint64)(p->trapframe), PTE_R | PTE_W, PAGELEVEL) < 0){
+              (uint64)(p->trapframe), PTE_R | PTE_W, &level) < 0){
     uvmunmap(pagetable, TRAMPOLINE, 1, 0);
     uvmfree(pagetable, 0);
     return 0;
@@ -207,7 +208,7 @@ proc_pagetable(struct proc *p)
   
   // Creates a page right beneath the trapframe to store our pid
   if(mappages(pagetable, USYSCALL, PGSIZE,                      // add an entry to the pagetable that maps USYSCALL vm to 
-              (uint64)sys, PTE_U | PTE_R, PAGELEVEL) < 0){
+              (uint64)sys, PTE_U | PTE_R, &level) < 0){
     uvmunmap(pagetable, USYSCALL, 1, 0);                        // Not sure if this is required
     uvmfree(pagetable, 0);                                      // Not sure if this is required
     return 0;
