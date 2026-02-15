@@ -221,9 +221,9 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
   if((va % PGSIZE) != 0)    // check if page aligned
     panic("uvmunmap: not page aligned");
 
-  if (sz == SUPERPGSIZE)
-    if ((va % SUPERPGSIZE) != 0)
-      panic("uvmunmap: not superpage aligned");
+  // if (sz == SUPERPGSIZE)
+  //   if ((va % SUPERPGSIZE) != 0)
+  //     panic("uvmunmap: not superpage aligned");
 
   for(a = va; a < va + npages*PGSIZE; a += sz){ // keep the end condition constant so we can account for superpages
     sz = PGSIZE;
@@ -302,7 +302,6 @@ uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz, int xperm)
       sz = SUPERPGSIZE;
       debug("uvmalloc superkalloc\n");
       if ((mem = superkalloc()) == 0) {   // if we don't have any more superpages, just do normal pages
-        uvmdealloc(pagetable, a, oldsz); // superpage exit level 1
         sz = PGSIZE;
         debug("uvmalloc superkalloc failed, kalloc instead\n");
         mem = kalloc();
@@ -364,7 +363,7 @@ freewalk(pagetable_t pagetable)
   // there are 2^9 = 512 PTEs in a page table.
   for(int i = 0; i < 512; i++){
     pte_t pte = pagetable[i];
-    if((pte & PTE_V) && (pte & (PTE_R|PTE_W|PTE_X)) == 0){
+    if((pte & PTE_V) && (pte & (PTE_R|PTE_W|PTE_X)) == 0){  // if it is valid and it is not a leaf
       // this PTE points to a lower-level page table.
       uint64 child = PTE2PA(pte);
       freewalk((pagetable_t)child);
@@ -557,35 +556,38 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
 }
 
 
-#ifdef LAB_PGTBL
 void
-vmprint_recursive(pagetable_t pagetable, int level, uint64* va) {
-  if (level == 2) {
-    *va = 0x0;
-  }
+vmprint_recursive(pagetable_t pagetable, uint64 level, uint64 parentva) {
   for (uint64 i = 0; i < 512; i++) {
     uint64* pte = &pagetable[i];
 
-    // printf("oring %lu\n", i);
-    // printf("PTE: %p\n", (uint64*)*pte);
-    // printf("is valid %lu\n", *pte & PTE_V);
     if (!(*pte & PTE_V)) { // if the valid bit is not set, continue
-      // printf("Continuing\n");
       continue;
     }
-    *va = *va | (i << PXSHIFT(level));    // set the 9 bits based on the level in the va
+    // if (level == 0) {
+    //   printf("i: %lu\n", i);
+    //   printf("level: %lx\n", i<<PXSHIFT(level));
+    // }
+    // printf("i: %lu\n", i);
+    uint64 va = parentva | (i << PXSHIFT(level));    // set the 9 bits based on the level in the va
+    // printf("va: %p\n", (uint64*)0x1);
+    // printf("va: %p, 38 bit: %lx\n", (uint64*)*va, ((*va >> 37) & 1));
+    // if ((level == 2) && ((*va >> 37) & 1)) {
+    //   *va = *va | ((uint64)0xffffffc << 36);
+    // }
+    // printf("va: %p", (uint64*)*va);
 
-    pagetable_t pagetable = (pagetable_t)PTE2PA(*pte);  // shifts off the flag bits and shifts left 3 spots for 0's
+    pagetable_t next_pagetable = (pagetable_t)PTE2PA(*pte);  // shifts off the flag bits and shifts left 3 spots for 0's
         
     // print the leading dots based on the level
     for (int i = level; i <= 2; i++) {
       printf(" ..");
     }
     // print the actual info
-    printf("%p: pte %p pa %p\n", (uint64*)*va, (uint64*)*pte, pagetable);
+    printf("%p: pte %p pa %p\n", (uint64*)va, (uint64*)*pte, next_pagetable);
 
     if (level != 0) { // if we can't go any farther into the recursion
-      vmprint_recursive(pagetable, --level, va);
+      vmprint_recursive(next_pagetable, level - 1, va);
     }
   }
 }
@@ -594,13 +596,12 @@ void
 vmprint(pagetable_t pagetable) {
   // your code here
   printf("page table %p\n", pagetable);
-  uint64 va = 0x0;
-  vmprint_recursive(pagetable, 2, &va);
+  uint64 rootva = 0x0;
+  vmprint_recursive(pagetable, 2, rootva);
 
 }
 
 
-#endif
 
 
 
