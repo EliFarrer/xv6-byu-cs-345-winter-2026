@@ -91,3 +91,89 @@ This seems to be the trapframe because it is next to the trampoline and can be w
 This seems to be the trampoline as it is at the highest virtual memory value, is not accessed by the user, and is executable and readable.
 
 # Speed up system calls
+It seems like this page and datastructure is great for storing data. Maybe we could store the pipe data in this extra page, or even file related items like if it is reading from a file or not.
+
+# Print a page table
+
+```
+page table 0x0000000086f20000
+ ..0x0000000000000000: pte 0x0000000021bc6c01 pa 0x0000000086f1b000
+ .. ..0x0000000000000000: pte 0x0000000021bc6801 pa 0x0000000086f1a000
+ .. .. ..0x0000000000000000: pte 0x0000000021bc705b pa 0x0000000086f1c000
+ .. .. ..0x0000000000001000: pte 0x0000000021bc64d7 pa 0x0000000086f19000
+ .. .. ..0x0000000000002000: pte 0x0000000021bc6007 pa 0x0000000086f18000
+ .. .. ..0x0000000000003000: pte 0x0000000021bc5cd7 pa 0x0000000086f17000
+ ..0x0000003fc0000000: pte 0x0000000021bc7c01 pa 0x0000000086f1f000
+ .. ..0x0000003fffe00000: pte 0x0000000021bc7801 pa 0x0000000086f1e000
+ .. .. ..0x0000003fffffd000: pte 0x0000000021bc7413 pa 0x0000000086f1d000
+ .. .. ..0x0000003fffffe000: pte 0x0000000021bcfcc7 pa 0x0000000086f3f000
+ .. .. ..0x0000003ffffff000: pte 0x000000002000184b pa 0x0000000080006000
+```
+
+1) `0x0000000000000000: pte 0x0000000021bc705b pa 0x0000000086f1c000`
+- Permission bits: 0b01011011.
+    - Accessed
+    - User
+    - Executable
+    - Readable
+    - Valid
+
+This seems to be the machine instructions because it is readable and executable.
+
+2) `0x0000000000001000: pte 0x0000000021bc64d7 pa 0x0000000086f19000`
+- Permission bits: 0b11010111
+    - Dirty
+    - Accessed
+    - User
+    - Writable
+    - Readable
+    - Valid
+
+This seems to be the Kernel data because it is readable and writable.
+
+3) `0x0000000000002000: pte 0x0000000021bc6007 pa 0x0000000086f18000`
+- Permission bits: 0x00000111
+    - Writable
+    - Readable
+    - Valid
+
+This seems to be free memory that is unused.
+
+4) `0x0000000000003000: pte 0x0000000021bc5cd7 pa 0x0000000086f17000`
+- Permission bits: 0b11010111
+    - Dirty
+    - Accessed
+    - User
+    - Writable
+    - Readable
+    - Valid
+
+This seems to be memory that is currently in use because it is dirty.
+
+5) `0x0000003fffffd000: pte 0x0000000021bc7413 pa 0x0000000086f1d000`
+- Permission bits: 0b00010011
+    - User
+    - Readable
+    - Valid
+
+This is a guard page because it is valid, but not accessed.
+
+6) `0x0000003fffffe000: pte 0x0000000021bcfcc7 pa 0x0000000086f3f000`
+- Permission bits: 0b11000111
+    - Dirty
+    - Accessed
+    - NOT User
+    - Writable
+    - Readable
+    - Valid
+
+This is the trapframe, it is not user accessed.
+
+7) `0x0000003ffffff000: pte 0x000000002000184b pa 0x0000000080006000`
+- Permission bits: 0b01001011
+    - Accessed
+    - Executable
+    - Readable
+    - Valid
+
+This is the trampoline because it is readable and executable.

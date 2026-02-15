@@ -3065,7 +3065,7 @@ int
 drivetests(int quick, int continuous, char *justone) {
   do {
     printf("usertests starting\n");
-    int free0 = countfree();
+    int free0 = countfree();  // the number of free pages initially
     int free1 = 0;
     if (runtests(quicktests, justone, continuous)) {
       if(continuous != 2) {

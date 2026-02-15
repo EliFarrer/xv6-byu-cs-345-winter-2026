@@ -1,6 +1,17 @@
 set confirm off
 set architecture riscv:rv64
 target remote 127.0.0.1:1234
-symbol-file kernel/kernel
 set disassemble-next-line auto
 set riscv use-compressed-breakpoints yes
+
+
+symbol-file kernel/kernel
+add-symbol-file user/_usertests 0x0
+
+layout src
+
+b sbrkbasic
+break kernel/vm.c:238
+break kernel/vm.c:304
+break kernel/vm.c:305
+# b growproc
