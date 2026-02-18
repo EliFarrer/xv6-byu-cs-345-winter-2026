@@ -9,6 +9,16 @@
 #include "fs.h"
 
 /*
+DEBUGGING IDEAS
+
+Allocations and deallocations aren't matching. Printf each and find the differences.
+What if I comment out freewalk.
+Global variable counting where I allocate or deallocate (may need a lock)
+tail -f log.txt (-f makes it update)
+See what chat thinks with this.
+*/
+
+/*
  * the kernel's page table.
  */
 pagetable_t kernel_pagetable;
@@ -363,7 +373,7 @@ freewalk(pagetable_t pagetable)
   // there are 2^9 = 512 PTEs in a page table.
   for(int i = 0; i < 512; i++){
     pte_t pte = pagetable[i];
-    if((pte & PTE_V) && (pte & (PTE_R|PTE_W|PTE_X)) == 0){  // if it is valid and it is not a leaf
+    if((pte & PTE_V) && (pte & (PTE_R|PTE_W|PTE_X)) == 0){  // if it is valid (pagetable directory) and it is not a leaf
       // this PTE points to a lower-level page table.
       uint64 child = PTE2PA(pte);
       freewalk((pagetable_t)child);
@@ -372,7 +382,7 @@ freewalk(pagetable_t pagetable)
       panic("freewalk: leaf");
     }
   }
-  kfree((void*)pagetable);
+  kfree((void*)pagetable);    // this clears the leaf nodes
 }
 
 // Free user memory pages,
@@ -381,8 +391,8 @@ void
 uvmfree(pagetable_t pagetable, uint64 sz)
 {
   if(sz > 0)
-    uvmunmap(pagetable, 0, PGROUNDUP(sz)/PGSIZE, 1);
-  freewalk(pagetable);
+    uvmunmap(pagetable, 0, PGROUNDUP(sz)/PGSIZE, 1);  // frees the pages
+  freewalk(pagetable);  // frees the pagetable directories
 }
 
 // Given a parent process's page table, copy
