@@ -132,6 +132,15 @@ found:
     return 0;
   }
 
+  // Allocate a pid page.
+  if((p->sys = (struct usyscall *)kalloc()) == 0){
+    freeproc(p);
+    release(&p->lock);
+    return 0;
+  } else {
+    p->sys->pid = p->pid;
+  }
+
   // An empty user page table.
   p->pagetable = proc_pagetable(p);
   if(p->pagetable == 0){
@@ -160,8 +169,9 @@ freeproc(struct proc *p)
   p->trapframe = 0;
 
   // free the page containing the pid
-  uint64 pa = walkaddr(p->pagetable, (uint64)USYSCALL);
-  kfree((void*)pa);
+  if(p->sys)
+    kfree((void*)p->sys);
+  p->sys = 0;
 
   if(p->pagetable)
     proc_freepagetable(p->pagetable, p->sz);
@@ -208,14 +218,11 @@ proc_pagetable(struct proc *p)
     return 0;
   }
 
-  struct usyscall *sys = (struct usyscall*)kalloc();   // allocates a page of memory 
-  sys->pid = p->pid;
-  
   // Creates a page right beneath the trapframe to store our pid
   if(mappages(pagetable, USYSCALL, PGSIZE,                      // add an entry to the pagetable that maps USYSCALL vm to 
-              (uint64)sys, PTE_U | PTE_R, &level) < 0){
-    uvmunmap(pagetable, USYSCALL, 1, 0);                        // Not sure if this is required
-    uvmfree(pagetable, 0);                                      // Not sure if this is required
+              (uint64)(p->sys), PTE_U | PTE_R, &level) < 0){
+    uvmunmap(pagetable, USYSCALL, 1, 0);
+    uvmfree(pagetable, 0);
     return 0;
   }
 
