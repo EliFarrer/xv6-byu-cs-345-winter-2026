@@ -158,6 +158,11 @@ freeproc(struct proc *p)
   if(p->trapframe)
     kfree((void*)p->trapframe);
   p->trapframe = 0;
+
+  // free the page containing the pid
+  uint64 pa = walkaddr(p->pagetable, (uint64)USYSCALL);
+  kfree((void*)pa);
+
   if(p->pagetable)
     proc_freepagetable(p->pagetable, p->sz);
   p->pagetable = 0;
