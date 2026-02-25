@@ -283,7 +283,7 @@ fork(void)
   struct proc *np;
   struct proc *p = myproc();
 
-  // Allocate process.
+  // Allocate process (trapframe and empty pagetable).
   if((np = allocproc()) == 0){
     return -1;
   }

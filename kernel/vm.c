@@ -317,16 +317,23 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
   uint flags;
   char *mem;
 
-  for(i = 0; i < sz; i += PGSIZE){
+  for(i = 0; i < sz; i += PGSIZE){  // iterate over the process size by pages, remember each process starts at vm = 0 and ends at vm = p->sz
+    // get the pa for va=i
     if((pte = walk(old, i, 0)) == 0)
       panic("uvmcopy: pte should exist");
     if((*pte & PTE_V) == 0)
       panic("uvmcopy: page not present");
     pa = PTE2PA(*pte);
     flags = PTE_FLAGS(*pte);
+
+    // allocate a page
     if((mem = kalloc()) == 0)
       goto err;
+    
+      // move everything at the physical address into memory
     memmove(mem, (char*)pa, PGSIZE);
+    
+    // map the physical memory to the virtual address with the proper flags.
     if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
       kfree(mem);
       goto err;
