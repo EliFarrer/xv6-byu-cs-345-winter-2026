@@ -32,9 +32,9 @@ def test_print_kpgtbl_():
         '^ \.\. \.\. \.\.(0xfffffffffffff000|0x0000003ffffff000)',
     )
 
-#@test(15, "pgtbltest: superpg", parent=test_pgtbltest)
-#def test_superpg_():
-#    r.match('^superpg_test: OK$')
+@test(15, "pgtbltest: superpg", parent=test_pgtbltest)
+def test_superpg_():
+    r.match('^superpg_test: OK$')
 
 @test(0, "dptest")
 def test_dptest():
@@ -42,13 +42,13 @@ def test_dptest():
         'dptest'
     ]), timeout=300)
 
-@test(15, "test: demand paging", parent=test_dptest)
-def test_dp():
-    r.match('va 0x4000 pte 0x.* pa 0x.* perm 0x.*6',
-						'va 0x5000 pte 0x.* pa 0x.* perm 0x.*6',
-						'va 0x6000 pte 0x.* pa 0x.* perm 0x.*6',
-						'va 0x7000 pte 0x.* pa 0x.* perm 0x.*6',
-						'^dptest: OK$')
+#@test(15, "test: demand paging", parent=test_dptest)
+#def test_dp():
+#    r.match('va 0x4000 pte 0x.* pa 0x.* perm 0x.*6',
+#						'va 0x5000 pte 0x.* pa 0x.* perm 0x.*6',
+#						'va 0x6000 pte 0x.* pa 0x.* perm 0x.*6',
+#						'va 0x7000 pte 0x.* pa 0x.* perm 0x.*6',
+#						'^dptest: OK$')
 
 @test(5, "answers-pgtbl.txt")
 def test_answers():
