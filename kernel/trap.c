@@ -5,6 +5,7 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+#include "vm.c"
 
 struct spinlock tickslock;
 uint ticks;
@@ -65,6 +66,14 @@ usertrap(void)
     intr_on();
 
     syscall();
+  } else if (r_scause() == PGSTOREFAULT) {
+    // kills processes that fail the fault handler
+    int ret = uvmfaulthandler(p->pagetable, r_stval());
+    if (ret < 0) {
+      printf("COW Pagefault with code %d\n", ret);
+      setkilled(p);
+    }
+
   } else if((which_dev = devintr()) != 0){
     // ok
   } else {
