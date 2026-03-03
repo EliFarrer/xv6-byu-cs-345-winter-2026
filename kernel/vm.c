@@ -326,16 +326,24 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
     pa = PTE2PA(*pte);
     flags = PTE_FLAGS(*pte);
 
-    // allocate a page
-    if((mem = kalloc()) == 0)
-      goto err;
+    // for COW, we don't want to allocate a new page
+    // // allocate a page
+    // if((mem = kalloc()) == 0)
+    //   goto err;
     
-      // move everything at the physical address into memory
-    memmove(mem, (char*)pa, PGSIZE);
+    // // move everything at the physical address into memory
+    // memmove(mem, (char*)pa, PGSIZE);
     
-    // map the physical memory to the virtual address with the proper flags.
-    if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
-      kfree(mem);
+    // mark pages as cow pages if they have the PTE_W bit set
+    if (flags & PTE_W) {
+      // unset the PTE_W bit
+      flags = flags | (~PTE_W); // take off the write bit
+      // set the PTE_COW bit
+      flags = flags | PTE_COW;
+    }
+    
+    // map the physical memory to the child's pagetable with the proper flags.
+    if(mappages(new, i, PGSIZE, (uint64)pa, flags) != 0){
       goto err;
     }
   }
