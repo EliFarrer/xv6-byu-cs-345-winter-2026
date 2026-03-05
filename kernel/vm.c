@@ -475,37 +475,52 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
 int
 uvmfaulthandler(pagetable_t pagetable, uint64 pageva) {
   pte_t *pte;
-  uint64 pa, i;
+  uint64 pa;
   uint flags;
   char *mem;
 
-    if((pte = walk(pagetable, pageva, 0)) == 0)
-      // panic("uvmcopy: pte should exist");
-      return -1;
-    if((*pte & PTE_V) == 0)
-      // panic("uvmcopy: page not present");
-      return -2;
-    pa = PTE2PA(*pte);
-    flags = PTE_FLAGS(*pte);
+  if((pte = walk(pagetable, pageva, 0)) == 0) {
+    // panic("uvmcopy: pte should exist");
+    return -1;
+  }
+  if((*pte & PTE_V) == 0) {
+    // panic("uvmcopy: page not present");
+    return -2;
+  }
+  pa = PTE2PA(*pte);
+  flags = PTE_FLAGS(*pte);
+  // rather than copying the flags over, do *pte = ... so it will actually modify it.
 
-    if (flags & PTE_COW) {
+  if (*pte & PTE_COW) {
+    // only allocate a page if it is shared, otherwise, promote it, it is possible the parent got kfreed previous to this.
+    if (refidx_lock((void*)pa) == 1) {
+      *pte |= PTE_W;  // add the write bit back
+      *pte &= (~PTE_COW); // remove the cow bit
+      return 0;
+    } else {
       // allocate a page for the child
-      if((mem = kalloc()) == 0)
+      if((mem = kalloc()) == 0) {
         return -4;
-      
+      }
       // move the memory from the parent physical address to the child's physical address
       memmove(mem, (char*)pa, PGSIZE);
 
-      // map the child's virtual address to the new physical address
-      flags = flags | PTE_W;  // add the write bit back
-      flags = flags | (~PTE_COW); // remove the cow bit
-      if(mappages(pagetable, pageva, PGSIZE, (uint64)mem, flags) != 0){
-        kfree(mem);
-        return -5;
-      }
-    } else {
-      // kill processes that tried to write to a read only file
-      // will remain read only
-      return -3;
+      // rather than unmapping the va to pa and then remapping, just change it
+      // get the correct pte and reset it
+      *pte = PA2PTE(mem) | flags; // get new PTE with old flags
+      *pte |= PTE_W;  // add the write bit back
+      *pte &= (~PTE_COW); // remove the cow bit
+      
+      // flush the buffer with sfence.vma
+      sfence_vma();
+
+      // call kfree to either decrement the reference count or completely remove it
+      kfree((void*)pa);
     }
+  } else {
+    // kill processes that tried to write to a read only file
+    // will remain read only
+    return -3;
+  }
+  return 0; 
 }
