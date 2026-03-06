@@ -315,7 +315,6 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
   pte_t *pte;
   uint64 pa, i;
   uint flags;
-  char *mem;
 
   for(i = 0; i < sz; i += PGSIZE){  // iterate over the process size by pages, remember each process starts at vm = 0 and ends at vm = p->sz
     // get the pa for va=i
@@ -324,34 +323,32 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
     if((*pte & PTE_V) == 0)
       panic("uvmcopy: page not present");
     pa = PTE2PA(*pte);
-    flags = PTE_FLAGS(*pte);
 
-    // for COW, we don't want to allocate a new page
-    // // allocate a page
-    // if((mem = kalloc()) == 0)
-    //   goto err;
-    
-    // // move everything at the physical address into memory
-    // memmove(mem, (char*)pa, PGSIZE);
-    
-    // mark pages as cow pages if they have the PTE_W bit set
-    if (flags & PTE_W) {
-      // unset the PTE_W bit
-      flags = flags | (~PTE_W); // take off the write bit
-      // set the PTE_COW bit
-      flags = flags | PTE_COW;
+    // if it not already a cow page, set the flags to make it one
+    if (!(*pte & PTE_COW)) {
+      // mark pages as cow pages if they have the PTE_W bit set
+      if (*pte & PTE_W) {
+        // unset the PTE_W bit
+        *pte &= (~PTE_W); // take off the write bit
+        // set the PTE_COW bit
+        *pte |= PTE_COW;
+      }
+      // readable pages will just pagefault if something tries tor read them when they are not supposed to.
     }
-    
+
+    // once we set the flags, map it and increment
+    flags = PTE_FLAGS(*pte);
     // map the physical memory to the child's pagetable with the proper flags.
     if(mappages(new, i, PGSIZE, (uint64)pa, flags) != 0){
-      goto err;
+      uvmunmap(new, 0, i / PGSIZE, 1);
+      return -1;
     }
+    refincrement_lock((void*)pa);
   }
+  sfence_vma();
   return 0;
 
- err:
-  uvmunmap(new, 0, i / PGSIZE, 1);
-  return -1;
+  // TODO, threading error?
 }
 
 // mark a PTE invalid for user access.
