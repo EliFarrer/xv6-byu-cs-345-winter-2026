@@ -376,11 +376,14 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
   while(len > 0){
     va0 = PGROUNDDOWN(dstva);
     if(va0 >= MAXVA) {
-      printf("Greather than MAXVA\n");
       return -1;
     }
     if ((pte = walk(pagetable, va0, 0)) == 0) {
       printf("Failed walk\n");
+      return -1;
+    }
+
+    if((*pte & PTE_V) == 0 || (*pte & PTE_U) == 0) {
       return -1;
     }
 
@@ -390,6 +393,11 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
         printf("Cowfault handler failed with %d\n", val);
         return val;
       }
+    }
+
+    // forgot to handle the last case where there is code that is not writable or a cow page, just read only text
+    if (!(*pte & PTE_W)) {
+      return -1;
     }
 
     pa0 = PTE2PA(*pte);
