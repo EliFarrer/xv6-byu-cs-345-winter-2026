@@ -375,12 +375,23 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 
   while(len > 0){
     va0 = PGROUNDDOWN(dstva);
-    if(va0 >= MAXVA)
+    if(va0 >= MAXVA) {
+      printf("Greather than MAXVA\n");
       return -1;
-    pte = walk(pagetable, va0, 0);
-    if(pte == 0 || (*pte & PTE_V) == 0 || (*pte & PTE_U) == 0 ||
-       (*pte & PTE_W) == 0)
+    }
+    if ((pte = walk(pagetable, va0, 0)) == 0) {
+      printf("Failed walk\n");
       return -1;
+    }
+
+    if (*pte & PTE_COW) {
+      int val = cowfault_handler(pte);
+      if (val < 0) {
+        printf("Cowfault handler failed with %d\n", val);
+        return val;
+      }
+    }
+
     pa0 = PTE2PA(*pte);
     n = PGSIZE - (dstva - va0);
     if(n > len)
