@@ -40,7 +40,7 @@ e1000_init(uint32 *xregs)
 
   // [E1000 14.5] Transmit initialization
   memset(tx_ring, 0, sizeof(tx_ring));
-  for (i = 0; i < TX_RING_SIZE; i++) {
+  for (i = 0; i < TX_RING_SIZE; i++) {    // allocates a bunch of transmit buffers
     tx_ring[i].status = E1000_TXD_STAT_DD;
     tx_bufs[i] = 0;
   }
@@ -52,11 +52,11 @@ e1000_init(uint32 *xregs)
   
   // [E1000 14.4] Receive initialization
   memset(rx_ring, 0, sizeof(rx_ring));
-  for (i = 0; i < RX_RING_SIZE; i++) {
-    rx_bufs[i] = kalloc();
+  for (i = 0; i < RX_RING_SIZE; i++) {        // allocates a bunch of receive buffers
+    rx_bufs[i] = kalloc();                    // allocates a page
     if (!rx_bufs[i])
       panic("e1000");
-    rx_ring[i].addr = (uint64) rx_bufs[i];
+    rx_ring[i].addr = (uint64) rx_bufs[i];    // sets the address
   }
   regs[E1000_RDBAL] = (uint64) rx_ring;
   if(sizeof(rx_ring) % 128 != 0)
@@ -91,21 +91,64 @@ e1000_init(uint32 *xregs)
   regs[E1000_IMS] = (1 << 7); // RXDW -- Receiver Descriptor Write Back
 }
 
+/*
+The function that is called when we need to send a packet. Called by net.c.
+net.c kalloc()s a buffer and that is passed to this function.
+This function will place a pointer to the buffer in the transmit ring. See `struct tx_desc`.
+Need to make sure the buffer is passed to kfree() when the E1000_RXD_STAT_DD bit is set in the status of `struct tx_desc`.
+Returns -1 when the ring is full.
+*/
 int
 e1000_transmit(char *buf, int len)
 {
-  //
-  // Your code here.
-  //
-  // buf contains an ethernet frame; program it into
-  // the TX descriptor ring so that the e1000 sends it. Stash
-  // a pointer so that it can be freed after send completes.
-  //
+  if ((buf < (char*)KERNBASE) || (buf > (char*)MAXVA)) {
+    printf("exiting early, bad buffer\n");
+    return -1;
+  }
 
-  
+  if (len < 0) {
+    printf("exiting early, bad length\n");
+    return -1;
+  }
+
+
+  uint32 idx = regs[E1000_TDT];
+  if ((idx < 0) || (idx >= TX_RING_SIZE)) {
+    panic("bad index");
+  }
+
+  if (!(tx_ring[idx].status & E1000_TXD_STAT_DD)) {  // if the page has been transmitted
+    // no descriptor is available
+    printf("exiting early, no descriptor availabler\n");
+    return -1;
+  }
+
+  // free the old address if it is not 0 (starts at 0 up above)
+  if (tx_bufs[idx])
+    kfree(tx_bufs[idx]);
+
+  // store the buffer in the bufs and in the ring
+  tx_bufs[idx] = buf;
+  tx_ring[idx].addr = (uint64)buf;
+
+  // reset the status
+  tx_ring[idx].status = 0;
+
+  // set the length
+  tx_ring[idx].length = len;
+
+  // set flags
+  tx_ring[idx].cmd = E1000_TXD_CMD_EOP | E1000_TXD_CMD_RS;
+
+  // update the index
+  regs[E1000_TDT] = (idx + 1) % TX_RING_SIZE;
   return 0;
 }
 
+/*
+Scans the receive ring and deliver the packets to the network stack with `net_rx()`.
+Allocates a new buffer and places it in the descriptor.
+*/
 static void
 e1000_recv(void)
 {
