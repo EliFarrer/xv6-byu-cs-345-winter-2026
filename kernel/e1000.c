@@ -112,7 +112,7 @@ e1000_transmit(char *buf, int len)
   }
 
 
-  uint32 idx = regs[E1000_TDT];
+  uint8 idx = regs[E1000_TDT];
   if ((idx < 0) || (idx >= TX_RING_SIZE)) {
     panic("bad index");
   }
@@ -152,6 +152,30 @@ Allocates a new buffer and places it in the descriptor.
 static void
 e1000_recv(void)
 {
+  acquire(&e1000_lock);
+  // check the next spot
+  uint8 idx = (regs[E1000_RDT] + 1) % RX_RING_SIZE;
+
+  if (!(rx_ring[idx].status & E1000_RXD_STAT_DD)) {  // if the page has been received
+    // no descriptor is available
+    printf("exiting early, no descriptor availabler\n");
+    return -1;
+  }
+
+  net_rx((uint64*)rx_ring[idx].addr, rx_ring[idx].length);
+
+  // allocate and set a new buffer
+  if ((rx_bufs[idx] = kalloc()) == 0) {
+    panic("failed to allocate new buffer");
+  }
+  rx_ring[idx].addr = (uint64)rx_bufs[idx];
+
+  // clear descriptor status bits
+  rx_ring[idx].status = 0;
+
+  regs[E1000_RDT] = idx;
+
+  release(&e1000_lock);
   //
   // Your code here.
   //
