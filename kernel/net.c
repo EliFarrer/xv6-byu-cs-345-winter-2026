@@ -23,6 +23,7 @@ void
 netinit(void)
 {
   initlock(&netlock, "netlock");
+  acquire(&netlock);
   for (int i = 0; i < MAX_SOCKETS; i++) {
     initlock(&sockets[i].lock, "socketlock");
     acquire(&sockets[i].lock);
@@ -31,6 +32,7 @@ netinit(void)
     sockets[i].tail = 0;
     release(&sockets[i].lock);
   }
+  release(&netlock);
 }
 
 
