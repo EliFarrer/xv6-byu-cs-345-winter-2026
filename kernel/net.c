@@ -17,12 +17,20 @@ static uint32 local_ip = MAKE_IP_ADDR(10, 0, 2, 15);
 // qemu host's ethernet address.
 static uint8 host_mac[ETHADDR_LEN] = { 0x52, 0x55, 0x0a, 0x00, 0x02, 0x02 };
 
-static struct spinlock netlock;
+static struct spinlock netlock; // protects sockets
 
 void
 netinit(void)
 {
   initlock(&netlock, "netlock");
+  for (int i = 0; i < MAX_SOCKETS; i++) {
+    initlock(&sockets[i].lock, "socketlock");
+    acquire(&sockets[i].lock);
+    sockets[i].bound = 0;
+    sockets[i].head = 0;
+    sockets[i].tail = 0;
+    release(&sockets[i].lock);
+  }
 }
 
 
@@ -30,14 +38,31 @@ netinit(void)
 // bind(int port)
 // prepare to receive UDP packets address to the port,
 // i.e. allocate any queues &c needed.
+// called before sys_recv()
 //
 uint64
 sys_bind(void)
 {
-  //
-  // Your code here.
-  //
+  int port;
+  argint(0, &port);
+  struct proc *p = myproc();
+  return bind(port, p->pid);
+}
 
+uint64
+bind(int port, int pid)
+{
+  acquire(&netlock);
+  for (int i = 0; i < MAX_SOCKETS; i++) {
+    if (sockets[i].bound == 0) {
+      sockets[i].port = port;
+      sockets[i].boundproc = pid;
+      release(&netlock);
+      return 0;
+    }
+  }
+  // couldn't find any open sockets
+  release(&netlock);
   return -1;
 }
 
@@ -58,13 +83,18 @@ sys_unbind(void)
 
 //
 // recv(int dport, int *src, short *sport, char *buf, int maxlen)
+// dport: destination port
+// 
+// returns the payload of a received UPD packet
+// bind is called before this
+//
 // if there's a received UDP packet already queued that was
 // addressed to dport, then return it.
 // otherwise wait for such a packet.
 //
-// sets *src to the IP source address.
-// sets *sport to the UDP source port.
-// copies up to maxlen bytes of UDP payload to buf.
+// sets *src to the IP source address (from the packet).
+// sets *sport to the UDP source port (from the packet).
+// copies up to maxlen bytes of UDP payload (from the packet) to buf.
 // returns the number of bytes copied,
 // and -1 if there was an error.
 //
@@ -74,10 +104,58 @@ sys_unbind(void)
 uint64
 sys_recv(void)
 {
-  //
-  // Your code here.
-  //
-  return -1;
+  struct proc *p = myproc();
+  int dport;
+  int src;
+  int sport;
+  uint64 bufaddr;
+  int len;
+
+  argint(0, &dport);
+  argint(1, &src);
+  argint(2, &sport);
+  argaddr(3, &bufaddr);
+  argint(4, &len);
+
+  return recv(p, &dport, &src, (short *) &sport, (char *) &bufaddr, len);
+}
+
+uint64
+recv(struct proc* p, int *dport, int *src, short *sport, char *buf, int maxlen)
+{
+  struct sock* socket = 0;
+  
+  // search for the packet
+  acquire(&netlock);
+  for (int i = 0; i < MAX_SOCKETS; i++) {
+    if (sockets[i].port == *dport) {
+      socket = sockets + i;
+      acquire(&socket->lock);
+      break;
+    }
+  }
+  release(&netlock);
+
+  if (socket == 0) return -1;   // couldn't find the matching port
+
+  // sleep if the packet doesn't exist
+  while (socket->head == socket->tail) {
+    sleep(socket, &socket->lock);
+  }
+  
+  // get the packet
+  struct packet* packet = socket->queue[socket->head];
+
+  // reset the head
+  socket->head = (socket->head + 1) % MAX_QUEUE;
+  release(&socket->lock);
+  
+  // return the length
+  copyout(p->pagetable, (uint64) buf, (char *) packet->data, packet->len);                 // copy the payload
+  copyout(p->pagetable, (uint64) src, (char *) &packet->src_ip, sizeof(packet->src_ip));    // copy the source ip
+  copyout(p->pagetable, (uint64) sport, (char *) &packet->sport, sizeof(packet->sport));    // copy the source port
+
+  return packet->len;
 }
 
 // This code is lifted from FreeBSD's ping.c, and is copyright by the Regents
@@ -117,6 +195,11 @@ in_cksum(const unsigned char *addr, int len)
 
 //
 // send(int sport, int dst, int dport, char *buf, int len)
+// dst: host ip address
+// dport: host port
+// sport: source port
+// buf: the payload
+// len: length of payload
 //
 uint64
 sys_send(void)
@@ -178,7 +261,12 @@ sys_send(void)
 
   return 0;
 }
-
+ 
+// called by net_rk() for every received packet 
+// decides if 1) packet is UDP, 2) port has been passed to bind
+// saves the packet (max 16 per port), drops if full
+// buffers it receives are:
+// | ethernet header (14 bytes) | ip header (20 bytes) | UDP header (8 bytes) | 
 void
 ip_rx(char *buf, int len)
 {
@@ -188,10 +276,56 @@ ip_rx(char *buf, int len)
     printf("ip_rx: received an IP packet\n");
   seen_ip = 1;
 
-  //
-  // Your code here.
-  //
-  
+  if (len < (sizeof(struct eth) + sizeof(struct ip) + sizeof(struct udp))) {
+    kfree(buf);
+  } else {
+    udp_rx(buf, len);
+  }
+}
+
+void
+udp_rx(char *buf, int len)
+{
+  struct ip *ip = (struct ip *) (buf + sizeof(struct eth));
+  struct udp *udp = (struct udp *) (ip + sizeof(ip));
+  struct sock* socket = 0;
+  int tail_idx;
+
+  acquire(&netlock);
+  for (int i = 0; i < MAX_SOCKETS; i++) {
+    if (sockets[i].port == udp->dport) {
+      socket = sockets + i;
+      tail_idx = socket->tail;
+
+      // if it is full
+      if ((tail_idx + 1) % MAX_QUEUE == 0) {
+        kfree(buf);
+        release(&netlock);
+        return;
+      }
+      acquire(&socket->lock);
+      break;
+    }
+  }
+  release(&netlock);
+
+  if (socket == 0) {
+    kfree(buf);
+    release(&socket->lock);
+    return;
+  }
+
+  // set the new tail
+  socket->tail = (socket->tail + 1) % MAX_QUEUE;
+
+  // set the packet items
+  struct packet* packet = (struct packet*) socket->queue[tail_idx];
+  packet->src_ip = ntohl(ip->ip_src);
+  packet->sport = ntohs(udp->sport);
+  packet->data = (char *) (udp + 1);
+
+  wakeup((void *) socket);
+  release(&socket->lock);
 }
 
 //

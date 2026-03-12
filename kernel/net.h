@@ -1,7 +1,7 @@
 //
 // endianness support
 //
-
+#include "spinlock.h"
 static inline uint16 bswaps(uint16 val)
 {
   return (((val & 0x00ffU) << 8) |
@@ -32,9 +32,9 @@ static inline uint32 bswapl(uint32 val)
 
 // an Ethernet packet header (start of the packet).
 struct eth {
-  uint8  dhost[ETHADDR_LEN];
-  uint8  shost[ETHADDR_LEN];
-  uint16 type;
+  uint8  dhost[ETHADDR_LEN];  // Destination MAC addr
+  uint8  shost[ETHADDR_LEN];  // Source MAC addr
+  uint16 type;                // Ether type
 } __attribute__((packed));
 
 #define ETHTYPE_IP  0x0800 // Internet protocol
@@ -125,3 +125,25 @@ struct dns_data {
   uint32 ttl;
   uint16 len;
 } __attribute__((packed));
+
+#define MAX_SOCKETS 16
+#define MAX_QUEUE 16
+
+struct sock {
+  int port;
+  int bound;
+  int head;  // index of a packet in the queue
+  int tail;  // index of a packet in the queue
+  int boundproc;
+  struct packet* queue[MAX_QUEUE];
+  struct spinlock lock; // protects packet queue
+};
+
+struct packet {
+  int len;
+  int src_ip;
+  short sport;
+  char* data;
+};
+
+struct sock sockets[MAX_SOCKETS];
