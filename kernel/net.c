@@ -340,24 +340,20 @@ udp_rx(char *buf, int len)
   }
 
   struct sock* socket = sockets + socket_idx;
-  int tail_idx = socket->tail;
-
+  
   // queue is full
-  if ((tail_idx + 1) % MAX_QUEUE == socket->head) {
+  if ((socket->tail + 1) % MAX_QUEUE == socket->head) {
     printf("udp_rx: queue full\n");
     kfree(buf);
     release(&socket->lock);
     return;
   }
-
+  
   if (socket == 0) {
     printf("udp_rx: socket is 0\n");
     kfree(buf);
     return;
   }
-
-  // set the new tail
-  socket->tail = (socket->tail + 1) % MAX_QUEUE;
 
   // set the packet items
   if ((packet = kalloc()) == 0) {
@@ -366,12 +362,16 @@ udp_rx(char *buf, int len)
     release(&socket->lock);
     return;
   }
+  
   printf("udp_rx: setting packet items\n");
-  socket->queue[tail_idx] = packet;
   packet->src_ip = ntohl(ip->ip_src);
   packet->sport = ntohs(udp->sport);
   packet->data = (char *) (udp + 1);
-
+  packet->len = ntohs(17);
+  
+  // set the new tail
+  socket->queue[socket->tail] = packet;
+  socket->tail = (socket->tail + 1) % MAX_QUEUE;
   printf("udp_rx: wakeup on %p\n", socket);
   wakeup((void *) socket);
   printf("udp_rx: release\n");
