@@ -23,14 +23,11 @@ void
 netinit(void)
 {
   initlock(&netlock, "netlock");
+  printf("netinit acquire netlock\n");
   acquire(&netlock);
   for (int i = 0; i < MAX_SOCKETS; i++) {
     initlock(&sockets[i].lock, "socketlock");
-    acquire(&sockets[i].lock);
-    sockets[i].bound = 0;
-    sockets[i].head = 0;
-    sockets[i].tail = 0;
-    release(&sockets[i].lock);
+    sockets[i].port = 0;
   }
   release(&netlock);
 }
@@ -54,18 +51,25 @@ sys_bind(void)
 uint64
 bind(int port, int pid)
 {
-  acquire(&netlock);
-  for (int i = 0; i < MAX_SOCKETS; i++) {
-    if (sockets[i].bound == 0) {
-      sockets[i].port = port;
-      sockets[i].boundproc = pid;
-      release(&netlock);
-      return 0;
-    }
+  int sock_idx;
+  printf("bind: findsock\n");
+  if ((sock_idx = find_sock(0, 0)) == -1) {
+    return -1;
   }
-  // couldn't find any open sockets
+  printf("bind: got_sock=%d\n", sock_idx);
+  struct sock* socket = sockets + sock_idx;
+  // initialize the queue
+  socket->head = 0;
+  socket->tail = 0;
+  printf("bind: releasing socketlock\n");
+  release(&socket->lock);
+  // set the port and boundproc
+  socket->port = port;
+  socket->boundproc = pid;
+  printf("bind: releasing netlock\n");
   release(&netlock);
-  return -1;
+
+  return 0;
 }
 
 //
@@ -81,6 +85,34 @@ sys_unbind(void)
   //
 
   return 0;
+}
+
+// Searches the sockets for the next open, returns index if found, -1 otherwise
+// acquires the netlock, optionally releases it, acquires the sockets queue lock
+int
+find_sock(int port, int release_net) {
+  printf("\tfind_sock: acquire netlock\n");
+  printf("\tfind_sock: port=%d\n", port);
+  acquire(&netlock);
+  for (int i = 0; i < MAX_SOCKETS; i++) {
+    printf("\tfind_sock: test_port=%d\n", sockets[i].port);
+    if (sockets[i].port == port) {
+      printf("\tfind_sock: acquire socket lock\n");
+      acquire(&sockets[i].lock);
+      if (release_net) {
+        printf("\tfind_sock: release netlock\n");
+        release(&netlock);
+      }
+      return i;
+    }
+  }
+  if (release_net) {
+    printf("\tfind_sock: release netlock\n");
+    release(&netlock);
+  }
+  // couldn't find any open sockets
+  printf("\tfindsock: return\n");
+  return -1;
 }
 
 //
@@ -108,40 +140,39 @@ sys_recv(void)
 {
   struct proc *p = myproc();
   int dport;
-  int src;
-  int sport;
+  uint64 src;
+  uint64 sport;
   uint64 bufaddr;
   int len;
 
   argint(0, &dport);
-  argint(1, &src);
-  argint(2, &sport);
+  argaddr(1, &src);
+  argaddr(2, &sport);
   argaddr(3, &bufaddr);
   argint(4, &len);
 
-  return recv(p, &dport, &src, (short *) &sport, (char *) &bufaddr, len);
+  int out = recv(p, dport, src, sport, bufaddr, len);
+  printf("sys_recv: got out=%d\n", out);
+  return out;
 }
 
 uint64
-recv(struct proc* p, int *dport, int *src, short *sport, char *buf, int maxlen)
+recv(struct proc* p, int dport, uint64 src, uint64 sport, uint64 buf, int maxlen)
 {
-  struct sock* socket = 0;
-  
-  // search for the packet
-  acquire(&netlock);
-  for (int i = 0; i < MAX_SOCKETS; i++) {
-    if (sockets[i].port == *dport) {
-      socket = sockets + i;
-      acquire(&socket->lock);
-      break;
-    }
-  }
-  release(&netlock);
+  int sock_idx;
+  int len;
 
-  if (socket == 0) return -1;   // couldn't find the matching port
+  // can't find socket
+  printf("starting recv findsock\n");
+  if ((sock_idx = find_sock(dport, 1)) == -1) {
+    return -1;
+  }
+
+  struct sock* socket = sockets + sock_idx;
 
   // sleep if the packet doesn't exist
   while (socket->head == socket->tail) {
+    printf("recv: sleep on %p\n", socket);
     sleep(socket, &socket->lock);
   }
   
@@ -153,11 +184,16 @@ recv(struct proc* p, int *dport, int *src, short *sport, char *buf, int maxlen)
   release(&socket->lock);
   
   // return the length
-  copyout(p->pagetable, (uint64) buf, (char *) packet->data, packet->len);                 // copy the payload
-  copyout(p->pagetable, (uint64) src, (char *) &packet->src_ip, sizeof(packet->src_ip));    // copy the source ip
-  copyout(p->pagetable, (uint64) sport, (char *) &packet->sport, sizeof(packet->sport));    // copy the source port
+  printf("recv: packet->len=%d\n", packet->len);
+  len = packet->len;
+  copyout(p->pagetable, buf, (char *) packet->data, packet->len);                  // copy the payload
+  copyout(p->pagetable, src, (char *) &packet->src_ip, sizeof(packet->src_ip));    // copy the source ip
+  copyout(p->pagetable, sport, (char *) &packet->sport, sizeof(packet->sport));    // copy the source port
+  printf("recv: packet->len=%x\n", packet->len);
 
-  return packet->len;
+  kfree(packet);
+
+  return len;
 }
 
 // This code is lifted from FreeBSD's ping.c, and is copyright by the Regents
@@ -279,6 +315,7 @@ ip_rx(char *buf, int len)
   seen_ip = 1;
 
   if (len < (sizeof(struct eth) + sizeof(struct ip) + sizeof(struct udp))) {
+    printf("ip_rx: kfree\n");
     kfree(buf);
   } else {
     udp_rx(buf, len);
@@ -289,31 +326,33 @@ void
 udp_rx(char *buf, int len)
 {
   struct ip *ip = (struct ip *) (buf + sizeof(struct eth));
-  struct udp *udp = (struct udp *) (ip + sizeof(ip));
-  struct sock* socket = 0;
-  int tail_idx;
+  int header_len = (ip->ip_vhl & 0xf) << 2;
+  struct udp *udp = (struct udp *) ((char *)ip + header_len);
+  struct packet* packet;
 
-  acquire(&netlock);
-  for (int i = 0; i < MAX_SOCKETS; i++) {
-    if (sockets[i].port == udp->dport) {
-      socket = sockets + i;
-      tail_idx = socket->tail;
+  int socket_idx;
 
-      // if it is full
-      if ((tail_idx + 1) % MAX_QUEUE == 0) {
-        kfree(buf);
-        release(&netlock);
-        return;
-      }
-      acquire(&socket->lock);
-      break;
-    }
+  printf("starting udp_rx findsock with port %d\n", ntohs(udp->dport));
+  if ((socket_idx = find_sock(ntohs(udp->dport), 1)) == -1) {
+    printf("udp_rx: socket is -1\n");
+    kfree(buf);
+    return;
   }
-  release(&netlock);
 
-  if (socket == 0) {
+  struct sock* socket = sockets + socket_idx;
+  int tail_idx = socket->tail;
+
+  // queue is full
+  if ((tail_idx + 1) % MAX_QUEUE == socket->head) {
+    printf("udp_rx: queue full\n");
     kfree(buf);
     release(&socket->lock);
+    return;
+  }
+
+  if (socket == 0) {
+    printf("udp_rx: socket is 0\n");
+    kfree(buf);
     return;
   }
 
@@ -321,13 +360,23 @@ udp_rx(char *buf, int len)
   socket->tail = (socket->tail + 1) % MAX_QUEUE;
 
   // set the packet items
-  struct packet* packet = (struct packet*) socket->queue[tail_idx];
+  if ((packet = kalloc()) == 0) {
+    printf("udp_rx: kalloc failed\n");
+    kfree(buf);
+    release(&socket->lock);
+    return;
+  }
+  printf("udp_rx: setting packet items\n");
+  socket->queue[tail_idx] = packet;
   packet->src_ip = ntohl(ip->ip_src);
   packet->sport = ntohs(udp->sport);
   packet->data = (char *) (udp + 1);
 
+  printf("udp_rx: wakeup on %p\n", socket);
   wakeup((void *) socket);
+  printf("udp_rx: release\n");
   release(&socket->lock);
+  printf("udp_rx: done\n");
 }
 
 //
@@ -343,6 +392,7 @@ arp_rx(char *inbuf)
   static int seen_arp = 0;
 
   if(seen_arp){
+    printf("arp_rx: kfree");
     kfree(inbuf);
     return;
   }
@@ -375,6 +425,7 @@ arp_rx(char *inbuf)
 
   e1000_transmit(buf, sizeof(*eth) + sizeof(*arp));
 
+  printf("arp_rx: kfree inbuf\n");
   kfree(inbuf);
 }
 
@@ -390,6 +441,7 @@ net_rx(char *buf, int len)
      ntohs(eth->type) == ETHTYPE_IP){
     ip_rx(buf, len);
   } else {
+    printf("net_rx: kfree\n");
     kfree(buf);
   }
 }

@@ -236,7 +236,7 @@ int             e1000_transmit(char *, int);
 void            netinit(void);
 void            net_rx(char *buf, int len);
 uint64          bind(int port, int pid);
-uint64          recv(struct proc* p, int *dport, int *src, short *sport, char *buf, int maxlen);
+uint64          recv(struct proc* p, int dport, uint64 src, uint64 sport, uint64 buf, int maxlen);
 void            udp_rx(char *buf, int len);
 int             find_sock(int port, int release_net);
 

@@ -124,8 +124,11 @@ e1000_transmit(char *buf, int len)
   }
 
   // free the old address if it is not 0 (starts at 0 up above)
-  if (tx_bufs[idx])
+  if (tx_bufs[idx]) {
+    printf("e1000_transmit: kfree\n");
     kfree(tx_bufs[idx]);
+    printf("e1000_transmit: kfree done\n");
+  }
 
   // store the buffer in the bufs and in the ring
   tx_bufs[idx] = buf;
@@ -158,9 +161,9 @@ e1000_recv(void)
 
   while (rx_ring[idx].status & E1000_RXD_STAT_DD) { // while there is a packet to read
     net_rx(rx_bufs[idx], rx_ring[idx].length);
-    
-    kfree(rx_bufs[idx]);
-
+    // printf("e1000_recv: freeing\n");
+    // kfree(rx_bufs[idx]);
+    // printf("e1000_recv: freed\n");
     // allocate and set a new buffer
     if ((rx_bufs[idx] = kalloc()) == 0) {
       panic("failed to allocate new buffer");

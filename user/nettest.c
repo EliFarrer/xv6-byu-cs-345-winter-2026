@@ -291,6 +291,10 @@ ping0()
   }
   
   if(memcmp(buf, ibuf, sizeof(buf)) != 0){
+    char newbuf[6];
+    memcpy(buf, newbuf, sizeof(newbuf));
+    newbuf[5] = '\0';
+    printf("buf: %s", newbuf);
     printf("ping0: wrong content\n");
     return 0;
   }

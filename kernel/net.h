@@ -130,8 +130,7 @@ struct dns_data {
 #define MAX_QUEUE 16
 
 struct sock {
-  int port;
-  int bound;
+  int port;   // 0 if not bound
   int head;  // index of a packet in the queue
   int tail;  // index of a packet in the queue
   int boundproc;
