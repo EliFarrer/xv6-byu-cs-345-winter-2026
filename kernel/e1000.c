@@ -125,9 +125,7 @@ e1000_transmit(char *buf, int len)
 
   // free the old address if it is not 0 (starts at 0 up above)
   if (tx_bufs[idx]) {
-    printf("e1000_transmit: kfree\n");
     kfree(tx_bufs[idx]);
-    printf("e1000_transmit: kfree done\n");
   }
 
   // store the buffer in the bufs and in the ring
