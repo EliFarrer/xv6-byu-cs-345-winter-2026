@@ -160,7 +160,6 @@ uint64
 recv(struct proc* p, int dport, uint64 src, uint64 sport, uint64 buf, int maxlen)
 {
   int sock_idx;
-  int len;
 
   // can't find socket
   printf("starting recv findsock\n");
@@ -184,16 +183,18 @@ recv(struct proc* p, int dport, uint64 src, uint64 sport, uint64 buf, int maxlen
   release(&socket->lock);
   
   // return the length
-  printf("recv: packet->len=%d\n", packet->len);
-  len = packet->len;
-  copyout(p->pagetable, buf, (char *) packet->data, packet->len);                  // copy the payload
+  char* data = packet->buf + packet->bufoff;
+  int packet_len = packet->buflen - packet->bufoff;
+  int copy_len = (packet_len > maxlen) ? maxlen : packet_len;
+  printf("recv: packet->len=%x\n", copy_len);
+  copyout(p->pagetable, buf, (char *) data, copy_len);                  // copy the payload
   copyout(p->pagetable, src, (char *) &packet->src_ip, sizeof(packet->src_ip));    // copy the source ip
   copyout(p->pagetable, sport, (char *) &packet->sport, sizeof(packet->sport));    // copy the source port
-  printf("recv: packet->len=%x\n", packet->len);
 
+  kfree(packet->buf);
   kfree(packet);
 
-  return len;
+  return copy_len;
 }
 
 // This code is lifted from FreeBSD's ping.c, and is copyright by the Regents
@@ -366,8 +367,9 @@ udp_rx(char *buf, int len)
   printf("udp_rx: setting packet items\n");
   packet->src_ip = ntohl(ip->ip_src);
   packet->sport = ntohs(udp->sport);
-  packet->data = (char *) (udp + 1);
-  packet->len = ntohs(17);
+  packet->buf = buf;
+  packet->bufoff = (char *) (udp + 1) - buf;
+  packet->buflen = len;
   
   // set the new tail
   socket->queue[socket->tail] = packet;

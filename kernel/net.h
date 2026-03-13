@@ -139,10 +139,11 @@ struct sock {
 };
 
 struct packet {
-  int len;
+  int buflen;  // total length of the buffer
+  int bufoff;   // offset to the payload
   int src_ip;
   short sport;
-  char* data;
+  char* buf;    // whole buffer
 };
 
 struct sock sockets[MAX_SOCKETS];
