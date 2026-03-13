@@ -110,8 +110,7 @@ e1000_transmit(char *buf, int len)
     printf("exiting early, bad length\n");
     return -1;
   }
-
-
+  acquire(&e1000_lock);
   uint32 idx = regs[E1000_TDT];
   if ((idx < 0) || (idx >= TX_RING_SIZE)) {
     panic("bad index");
@@ -120,6 +119,7 @@ e1000_transmit(char *buf, int len)
   if (!(tx_ring[idx].status & E1000_TXD_STAT_DD)) {  // if the page has been transmitted
     // no descriptor is available
     printf("exiting early, no descriptor availabler\n");
+    release(&e1000_lock);
     return -1;
   }
 
@@ -145,6 +145,7 @@ e1000_transmit(char *buf, int len)
 
   // update the index
   regs[E1000_TDT] = (idx + 1) % TX_RING_SIZE;
+  release(&e1000_lock);
   return 0;
 }
 
@@ -160,10 +161,10 @@ e1000_recv(void)
   uint32 idx = (regs[E1000_RDT] + 1) % RX_RING_SIZE;
 
   while (rx_ring[idx].status & E1000_RXD_STAT_DD) { // while there is a packet to read
+    release(&e1000_lock);
     net_rx(rx_bufs[idx], rx_ring[idx].length);
-    // printf("e1000_recv: freeing\n");
-    // kfree(rx_bufs[idx]);
-    // printf("e1000_recv: freed\n");
+    acquire(&e1000_lock);
+
     // allocate and set a new buffer
     if ((rx_bufs[idx] = kalloc()) == 0) {
       panic("failed to allocate new buffer");
@@ -177,7 +178,6 @@ e1000_recv(void)
 
     idx = (idx + 1) % RX_RING_SIZE;
   }
-
   release(&e1000_lock);
 }
 
