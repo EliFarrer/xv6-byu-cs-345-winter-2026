@@ -183,13 +183,10 @@ recv(struct proc* p, int dport, uint64 src, uint64 sport, uint64 buf, int maxlen
   release(&socket->lock);
   
   // return the length
-  char* data = packet->buf + packet->bufoff;
-  int packet_len = packet->buflen - packet->bufoff;
-  int copy_len = (packet_len > maxlen) ? maxlen : packet_len;
-  printf("recv: packet->len=%x\n", copy_len);
-  copyout(p->pagetable, buf, (char *) data, copy_len);                  // copy the payload
-  copyout(p->pagetable, src, (char *) &packet->src_ip, sizeof(packet->src_ip));    // copy the source ip
-  copyout(p->pagetable, sport, (char *) &packet->sport, sizeof(packet->sport));    // copy the source port
+  int copy_len = (packet->datalen > maxlen) ? maxlen : packet->datalen;
+  copyout(p->pagetable, buf, packet->data, copy_len);                             // copy the payload
+  copyout(p->pagetable, src, (char *) &packet->src_ip, sizeof(packet->src_ip));   // copy the source ip
+  copyout(p->pagetable, sport, (char *) &packet->sport, sizeof(packet->sport));   // copy the source port
 
   kfree(packet->buf);
   kfree(packet);
@@ -292,7 +289,7 @@ sys_send(void)
   char *payload = (char *)(udp + 1);
   if(copyin(p->pagetable, payload, bufaddr, len) < 0){
     kfree(buf);
-    printf("send: copyin failed\n");
+    printf("sys_send: copyin failed\n");
     return -1;
   }
 
@@ -368,9 +365,9 @@ udp_rx(char *buf, int len)
   packet->src_ip = ntohl(ip->ip_src);
   packet->sport = ntohs(udp->sport);
   packet->buf = buf;
-  packet->bufoff = (char *) (udp + 1) - buf;
-  packet->buflen = len;
-  
+  packet->data = (char *) (udp + 1);
+  packet->datalen = ntohs(udp->ulen) - sizeof(struct udp);
+
   // set the new tail
   socket->queue[socket->tail] = packet;
   socket->tail = (socket->tail + 1) % MAX_QUEUE;
