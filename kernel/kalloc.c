@@ -20,7 +20,7 @@ struct run {
 
 struct {
   struct spinlock lock;
-  struct run *freelist;
+  struct run *freelist; // linked list
 } kmem;
 
 void
@@ -30,6 +30,7 @@ kinit()
   freerange(end, (void*)PHYSTOP);
 }
 
+// frees all of memory and calls kfree (which puts it on the freelist)
 void
 freerange(void *pa_start, void *pa_end)
 {
@@ -56,9 +57,10 @@ kfree(void *pa)
 
   r = (struct run*)pa;
 
+  // prepends the pa onto the freelist
   acquire(&kmem.lock);
-  r->next = kmem.freelist;
-  kmem.freelist = r;
+  r->next = kmem.freelist;  // set the start of the freelist to r->next
+  kmem.freelist = r;        // set the freelist to r
   release(&kmem.lock);
 }
 

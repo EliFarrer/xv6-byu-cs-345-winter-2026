@@ -29,30 +29,41 @@ To:
 ```
 struct kmem {
   struct spinlock lock;
-  struct run *freelist; // linked list
-  uint32 count;         // size of the freelist
+  struct run *freelist; // linked list, protected by spinlock
+  uint32 count;         // size of the freelist, protected by spinlock
 };
 struct kmem kmems[NCPU];
 ```
 
 ### Modify `kalloc()`
-Grab freelist for the specific cpu with `cpuid()`. Disable and reenable interrupts with `push_off()` and `pop_off()`.
+Get cpuid with `cpuid()`. Disable and reenable interrupts with `push_off()` and `pop_off()`.
 
-Get CPU lock.
+Lock the freelist for the `cpu`. Get the freelist.
 
-If there is nothing left in the freelist, call `steal()`. If steal returned 1, continue, else, return 0.
+Check the freelist. If there is nothing left in the freelist, call `steal()`.
+- while `steal` returns 1:
+    - check to make sure the `freelist` has pages
+        - if it does, break
+- if steal returns 0, we are out of memory, return 0.
 
-Verify that the freelist is not empty if `steal()` returned 0.
+Decrement `count` if successful
 
-Decrement `count` if successful.
+Release lock
 
 ### Modify `kfree()`
+Get cpuid with `cpuid()`. Disable and reenable interrupts with `push_off()` and `pop_off()`.
 
-Add back to the cpu's `freelist`.
+Lock the freelist for the current cpu.
+
+Add back to the current cpu's `freelist`.
 
 Increment `count`.
 
-### Add `steal()`
+Release lock.
+
+### Add `int steal(int cpu, struct kmem* kmem)`
+Release the spinlock for `kmem`.
+
 Stealing will only be called if a cpu's freelist is empty. There will be a check to skip the cpu that it is checking in case more pages are added in between the time it is called and the time it checks.
 
 Depends on the current CPU's kmem lock not being held.
@@ -61,9 +72,11 @@ Depends on the current CPU's kmem lock not being held.
 
 Iterates through the `kmems` struct looking for the biggest freelist (from `count`). Biggest freelist is called `other`.
 
-Locks `other`'s freelist and then moves half of the pages out from `other`. Unlocks `other`'s freelist. Grab's `kmem`'s freelist lock and moves the pages into its freelist.
+Locks `other`'s freelist and then moves half of the pages out from `other`. Updates `count`. Unlocks `other`'s freelist. Grab's `kmem`'s freelist lock and moves the pages into its freelist. Updates `count`.
 
 Returns 0 on failure: there are no pages left, 1 on success: there are pages left and it successfully stole them.
+
+Get the original spinlock for `kmem`.
 
 ## Questions
 If I don't lock any of the freelists when I check them, isn't it possible that in between checking for the counts and stealing the pages, the pages are put to use and I get an error?
