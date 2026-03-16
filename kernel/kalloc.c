@@ -9,6 +9,8 @@
 #include "riscv.h"
 #include "defs.h"
 
+#define BUF_SZ 7
+
 void freerange(void *pa_start, void *pa_end);
 
 extern char end[]; // first address after kernel.
@@ -18,15 +20,24 @@ struct run {
   struct run *next;
 };
 
-struct {
+struct kmem {
   struct spinlock lock;
-  struct run *freelist; // linked list
-} kmem;
+  struct run *freelist; // linked list, protected by lock
+  uint32 count;         // count of items in freelist, protected by lock
+  char name[BUF_SZ];    // holds the name
+};
+
+struct kmem kmems[NCPU];
 
 void
 kinit()
 {
-  initlock(&kmem.lock, "kmem");
+  for (int i = 0; i < NCPU; i++) {
+    snprintf(kmems[i].name, BUF_SZ, "kmem_%d", i); // limited to six characters
+    initlock(&kmems[i].lock, kmems[i].name);
+    kmems[i].count = 0;
+    kmems[i].freelist = 0;
+  }
   freerange(end, (void*)PHYSTOP);
 }
 
@@ -47,7 +58,15 @@ freerange(void *pa_start, void *pa_end)
 void
 kfree(void *pa)
 {
+  // printf("kfree\n");
   struct run *r;
+  struct kmem *kmem;  // by pointer so we don't copy by value
+
+  push_off();
+  int cpu = cpuid();
+  kmem = kmems + cpu;
+  acquire(&kmem->lock); // push_off so it doesn't context switch in between. This keeps the cpu constant
+  pop_off();
 
   if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
     panic("kfree");
@@ -58,10 +77,10 @@ kfree(void *pa)
   r = (struct run*)pa;
 
   // prepends the pa onto the freelist
-  acquire(&kmem.lock);
-  r->next = kmem.freelist;  // set the start of the freelist to r->next
-  kmem.freelist = r;        // set the freelist to r
-  release(&kmem.lock);
+  r->next = kmem->freelist;  // set the start of the freelist to r->next
+  kmem->freelist = r;        // set the freelist to r
+  kmem->count++;
+  release(&kmem->lock);
 }
 
 // Allocate one 4096-byte page of physical memory.
@@ -71,14 +90,96 @@ void *
 kalloc(void)
 {
   struct run *r;
+  struct kmem *kmem;  // kmem pointer so it changes the actual value, not creating a new one by value
+  
+  push_off();
+  int cpu = cpuid();
+  kmem = kmems + cpu;
+  acquire(&kmem->lock);
+  pop_off();
+  
+  printf("kalloc: cpu=%d\n", cpu);
+  r = kmem->freelist;
+  if(r) {
+    printf("kalloc: freelist=%p\n", kmem->freelist);
+    printf("kalloc: r=%p\n", r);
+    printf("kalloc: r->next%p\n", r->next);
+    kmem->freelist = r->next;     /* PROBLEM */
+  } else {
+    while (steal(cpu, kmem)) { // while it returns 1
+      r = kmem->freelist; // re-update r
+      if (r) {
+        break;
+      }
+    }
+    // if it returns 0, no more memory
+    release(&kmem->lock);
+    return (void*)r;
+  }
 
-  acquire(&kmem.lock);
-  r = kmem.freelist;
-  if(r)
-    kmem.freelist = r->next;
-  release(&kmem.lock);
+  kmem->count--;
+
+  release(&kmem->lock);
 
   if(r)
     memset((char*)r, 5, PGSIZE); // fill with junk
   return (void*)r;
+}
+
+int
+steal(int cpu, struct kmem* kmem)
+{
+  int max = 0;
+  int max_idx = -1;
+  struct kmem* other;
+  
+  release(&kmem->lock);
+
+  for (int i = 0; i < NCPU; i++) {
+    if (kmems[i].count > max) {
+      max = kmems[i].count;
+      max_idx = i;
+    }
+  }
+
+  if (max_idx == -1) {
+    // no memory left
+    acquire(&kmem->lock);
+    return 0;
+  }
+
+  other = kmems + max_idx;
+  acquire(&other->lock);
+  struct run* last_page = 0;
+  int original_count = other->count;
+  int count = other->count/2;
+
+  printf("steal: stealing from=%d, to=%d\n", max_idx, cpu);
+  printf("steal: stealing %d\n", count);
+  printf("\tfrom pages og=%d, to pages og=%d\n", other->count, kmem->count);
+
+  struct run* pages = other->freelist;
+  for (int j = 0; j < count; j++) {
+    if (j == count - 1) {
+      last_page = other->freelist;
+    }
+    printf("steal: other->freelist=%p, other->freelist->next=%p\n", other->freelist, other->freelist->next);
+    other->freelist = other->freelist->next;  // get the next pointer     /* PROBLEM */
+  }
+  other->count = count;
+  release(&other->lock);
+
+  acquire(&kmem->lock);
+  if (last_page == 0) {
+    // no last page gotten
+    return 0;
+  }
+
+  last_page->next = kmem->freelist;
+  kmem->freelist = pages;
+  kmem->count += original_count - count;  // to handle an odd count
+
+  printf("\tfrom pages new=%d, to pages new=%d\n", other->count, kmem->count);
+  // keep the lock
+  return 1;
 }

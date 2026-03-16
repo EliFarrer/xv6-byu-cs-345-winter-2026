@@ -12,6 +12,7 @@ struct spinlock;
 struct sleeplock;
 struct stat;
 struct superblock;
+struct kmem;
 
 // bio.c
 void            binit(void);
@@ -67,6 +68,7 @@ void            ramdiskrw(struct buf*);
 void*           kalloc(void);
 void            kfree(void *);
 void            kinit(void);
+int             steal(int, struct kmem*);
 
 // log.c
 void            initlog(int, struct superblock*);
