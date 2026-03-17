@@ -98,23 +98,20 @@ kalloc(void)
   acquire(&kmem->lock);
   pop_off();
   
-  printf("kalloc: cpu=%d\n", cpu);
   r = kmem->freelist;
-  if(r) {
-    printf("kalloc: freelist=%p\n", kmem->freelist);
-    printf("kalloc: r=%p\n", r);
-    printf("kalloc: r->next%p\n", r->next);
-    kmem->freelist = r->next;     /* PROBLEM */
-  } else {
+  if (!r) {
     while (steal(cpu, kmem)) { // while it returns 1
       r = kmem->freelist; // re-update r
       if (r) {
+        kmem->freelist = r->next;
         break;
       }
     }
     // if it returns 0, no more memory
     release(&kmem->lock);
     return (void*)r;
+  } else {
+    kmem->freelist = r->next;     /* PROBLEM */
   }
 
   kmem->count--;
@@ -126,6 +123,7 @@ kalloc(void)
   return (void*)r;
 }
 
+// returns 1 if it works, 0 if it doesn't
 int
 steal(int cpu, struct kmem* kmem)
 {
@@ -154,16 +152,16 @@ steal(int cpu, struct kmem* kmem)
   int original_count = other->count;
   int count = other->count/2;
 
-  printf("steal: stealing from=%d, to=%d\n", max_idx, cpu);
-  printf("steal: stealing %d\n", count);
-  printf("\tfrom pages og=%d, to pages og=%d\n", other->count, kmem->count);
+  // printf("steal: stealing from=%d, to=%d\n", max_idx, cpu);
+  // printf("steal: stealing %d\n", count);
+  // printf("\tfrom pages og=%d, to pages og=%d\n", other->count, kmem->count);
 
   struct run* pages = other->freelist;
   for (int j = 0; j < count; j++) {
     if (j == count - 1) {
       last_page = other->freelist;
     }
-    printf("steal: other->freelist=%p, other->freelist->next=%p\n", other->freelist, other->freelist->next);
+    // printf("steal: other->freelist=%p, other->freelist->next=%p\n", other->freelist, other->freelist->next);
     other->freelist = other->freelist->next;  // get the next pointer     /* PROBLEM */
   }
   other->count = count;
@@ -179,7 +177,7 @@ steal(int cpu, struct kmem* kmem)
   kmem->freelist = pages;
   kmem->count += original_count - count;  // to handle an odd count
 
-  printf("\tfrom pages new=%d, to pages new=%d\n", other->count, kmem->count);
+  // printf("\tfrom pages new=%d, to pages new=%d\n", other->count, kmem->count);
   // keep the lock
   return 1;
 }
