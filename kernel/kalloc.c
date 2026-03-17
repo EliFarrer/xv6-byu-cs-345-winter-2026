@@ -99,27 +99,22 @@ kalloc(void)
   pop_off();
   
   r = kmem->freelist;
-  if (!r) {
-    while (steal(cpu, kmem)) { // while it returns 1
+  if (!r) { // if we don't have memory, we need to steal
+    if (steal(cpu, kmem)) { // if it returns 1
       r = kmem->freelist; // re-update r
-      if (r) {
-        kmem->freelist = r->next;
-        break;
-      }
+    } else {
+      // if it returns 0, no more memory
+      release(&kmem->lock);
+      return (void*)r;
     }
-    // if it returns 0, no more memory
-    release(&kmem->lock);
-    return (void*)r;
-  } else {
-    kmem->freelist = r->next;     /* PROBLEM */
   }
-
+  
+  kmem->freelist = r->next;
   kmem->count--;
 
   release(&kmem->lock);
 
-  if(r)
-    memset((char*)r, 5, PGSIZE); // fill with junk
+  memset((char*)r, 5, PGSIZE); // fill with junk
   return (void*)r;
 }
 
@@ -128,16 +123,30 @@ int
 steal(int cpu, struct kmem* kmem)
 {
   struct kmem* other;
-  int max_idx;
+  int other_cpu_idx;
+  int found_pages = 0;  // false
 
   release(&kmem->lock);
-  if ((max_idx = find_cpu_pages(cpu)) == -1) {
-    // no memory left
-    acquire(&kmem->lock);
-    return 0;
-  }
 
-  other = kmems + max_idx;
+  while (!found_pages) {
+    // three cases:
+    // 1) no memory left, return 0
+    // 2) we actually got pages, get the lock and exit
+    // 3) we didn't get any pages after searching for the cpu, repeat things
+    if ((other_cpu_idx = find_cpu_pages(cpu)) == -1) {
+      // no memory left
+      acquire(&kmem->lock);
+      return 0;
+    }
+    other = kmems + other_cpu_idx;
+    acquire(&other->lock);
+    printf("steal: count=%d\n", other->count);
+    if (other->count > 0) { // if we actually got pages
+      found_pages = 1;
+    } else {
+      release(&other->lock);
+    }
+  }
 
   if (!move_stolen_pages(kmem, other)) {
     panic("steal: failed to move");
@@ -166,16 +175,19 @@ find_cpu_pages(int cpu)
   return max_idx;
 }
 
+// assumes you have other->lock, releases it, then acquires kmem->lock without releasing
 int
 move_stolen_pages(struct kmem* kmem, struct kmem* other)
 {
   /*
   Move the pages forward on other
   */
-  acquire(&other->lock);
   struct run* last_page = 0;
-  int original_count = other->count;
-  int count = other->count/2;
+  // int original_count = other->count;
+  // If it is even, divide it, if it is odd, round up.
+  // This handles the case when other->count is 1 so the loop will acutally run.
+  // Otherwise, we will have a dangling page.
+  int move_count = other->count % 2 == 0 ? other->count/2 : other->count/2 + 1;
 
   // printf("steal: stealing from=%d, to=%d\n", max_idx, cpu);
   // printf("steal: stealing %d\n", count);
