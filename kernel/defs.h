@@ -69,6 +69,8 @@ void*           kalloc(void);
 void            kfree(void *);
 void            kinit(void);
 int             steal(int, struct kmem*);
+int             find_cpu_pages(int);
+int             move_stolen_pages(struct kmem*, struct kmem*);
 
 // log.c
 void            initlog(int, struct superblock*);

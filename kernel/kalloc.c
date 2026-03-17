@@ -127,26 +127,51 @@ kalloc(void)
 int
 steal(int cpu, struct kmem* kmem)
 {
-  int max = 0;
-  int max_idx = -1;
   struct kmem* other;
-  
+  int max_idx;
+
   release(&kmem->lock);
-
-  for (int i = 0; i < NCPU; i++) {
-    if (kmems[i].count > max) {
-      max = kmems[i].count;
-      max_idx = i;
-    }
-  }
-
-  if (max_idx == -1) {
+  if ((max_idx = find_cpu_pages(cpu)) == -1) {
     // no memory left
     acquire(&kmem->lock);
     return 0;
   }
 
   other = kmems + max_idx;
+
+  if (!move_stolen_pages(kmem, other)) {
+    panic("steal: failed to move");
+  }
+
+  // printf("\tfrom pages new=%d, to pages new=%d\n", other->count, kmem->count);
+  // keep the lock
+  return 1;
+}
+
+// returns the cpu number with the most free pages, or -1 otherwise
+// atomic
+int
+find_cpu_pages(int cpu)
+{
+  int max = 0;
+  int max_idx = -1;
+  
+  for (int i = 0; i < NCPU; i++) {
+    if (i == cpu) continue;
+    if (kmems[i].count > max) {
+      max = kmems[i].count;
+      max_idx = i;
+    }
+  }
+  return max_idx;
+}
+
+int
+move_stolen_pages(struct kmem* kmem, struct kmem* other)
+{
+  /*
+  Move the pages forward on other
+  */
   acquire(&other->lock);
   struct run* last_page = 0;
   int original_count = other->count;
@@ -167,6 +192,9 @@ steal(int cpu, struct kmem* kmem)
   other->count = count;
   release(&other->lock);
 
+  /*
+  Move the pointers in the kmem struct
+  */
   acquire(&kmem->lock);
   if (last_page == 0) {
     // no last page gotten
@@ -177,7 +205,5 @@ steal(int cpu, struct kmem* kmem)
   kmem->freelist = pages;
   kmem->count += original_count - count;  // to handle an odd count
 
-  // printf("\tfrom pages new=%d, to pages new=%d\n", other->count, kmem->count);
-  // keep the lock
   return 1;
 }
