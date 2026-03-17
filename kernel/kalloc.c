@@ -119,6 +119,7 @@ kalloc(void)
 }
 
 // returns 1 if it works, 0 if it doesn't
+// assumes you hold kmem->lock
 int
 steal(int cpu, struct kmem* kmem)
 {
@@ -194,14 +195,14 @@ move_stolen_pages(struct kmem* kmem, struct kmem* other)
   // printf("\tfrom pages og=%d, to pages og=%d\n", other->count, kmem->count);
 
   struct run* pages = other->freelist;
-  for (int j = 0; j < count; j++) {
-    if (j == count - 1) {
+  for (int j = 0; j < move_count; j++) {
+    if (j == move_count - 1) {
       last_page = other->freelist;
     }
     // printf("steal: other->freelist=%p, other->freelist->next=%p\n", other->freelist, other->freelist->next);
     other->freelist = other->freelist->next;  // get the next pointer     /* PROBLEM */
   }
-  other->count = count;
+  other->count -= move_count;
   release(&other->lock);
 
   /*
@@ -215,7 +216,7 @@ move_stolen_pages(struct kmem* kmem, struct kmem* other)
 
   last_page->next = kmem->freelist;
   kmem->freelist = pages;
-  kmem->count += original_count - count;  // to handle an odd count
+  kmem->count += move_count;  // to handle an odd count
 
   return 1;
 }
