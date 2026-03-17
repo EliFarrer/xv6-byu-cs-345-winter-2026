@@ -58,7 +58,6 @@ freerange(void *pa_start, void *pa_end)
 void
 kfree(void *pa)
 {
-  // printf("kfree\n");
   struct run *r;
   struct kmem *kmem;  // by pointer so we don't copy by value
 
@@ -141,7 +140,6 @@ steal(int cpu, struct kmem* kmem)
     }
     other = kmems + other_cpu_idx;
     acquire(&other->lock);
-    printf("steal: count=%d\n", other->count);
     if (other->count > 0) { // if we actually got pages
       found_pages = 1;
     } else {
@@ -153,7 +151,6 @@ steal(int cpu, struct kmem* kmem)
     panic("steal: failed to move");
   }
 
-  // printf("\tfrom pages new=%d, to pages new=%d\n", other->count, kmem->count);
   // keep the lock
   return 1;
 }
@@ -184,22 +181,16 @@ move_stolen_pages(struct kmem* kmem, struct kmem* other)
   Move the pages forward on other
   */
   struct run* last_page = 0;
-  // int original_count = other->count;
   // If it is even, divide it, if it is odd, round up.
   // This handles the case when other->count is 1 so the loop will acutally run.
   // Otherwise, we will have a dangling page.
   int move_count = other->count % 2 == 0 ? other->count/2 : other->count/2 + 1;
-
-  // printf("steal: stealing from=%d, to=%d\n", max_idx, cpu);
-  // printf("steal: stealing %d\n", count);
-  // printf("\tfrom pages og=%d, to pages og=%d\n", other->count, kmem->count);
 
   struct run* pages = other->freelist;
   for (int j = 0; j < move_count; j++) {
     if (j == move_count - 1) {
       last_page = other->freelist;
     }
-    // printf("steal: other->freelist=%p, other->freelist->next=%p\n", other->freelist, other->freelist->next);
     other->freelist = other->freelist->next;  // get the next pointer     /* PROBLEM */
   }
   other->count -= move_count;

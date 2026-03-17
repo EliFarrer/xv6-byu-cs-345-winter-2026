@@ -125,7 +125,7 @@ void test3(void)
       exit(-1);
     }
     if(pid == 0){
-      if (i == 0) {
+      if (i == 0) { // allocates and deallocates, push and pop from freelist
         for(i = 0; i < N; i++) {
           a = (uint64) sbrk(4096);
           if(a == 0xffffffffffffffff){
@@ -145,7 +145,7 @@ void test3(void)
         printf("child done %d\n", i);
         exit(0);
       } else {
-        while (1) {
+        while (1) { // uses up all memory, try to take all memory
           int free0 = countfree();
           int free1 = countfree();
           if(free0 - free1 > 1) {
@@ -167,7 +167,8 @@ void test3(void)
   }
   kill(pid);
 
-  n = ntas(1);
+  n = ntas(1);  // ntas is number of test and sets
+  // n is the number of spins at the end, m is the number of spins at the beginning.
   if(n-m < 10000) 
     printf("\ntest3 OK\n");
   else

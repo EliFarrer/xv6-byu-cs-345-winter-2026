@@ -95,3 +95,14 @@ Initially, have one CPU call `freerange` and don't try to split it up by cpu. Th
 Steal from largest, linear search, no locking.
 
 See also the race detector.
+
+## Results
+No changes in code: 108260
+My changes: 842633
+Ran again: 715988
+Removed some comments: 434586
+Ran again: 1255681
+Ran again: 1117535
+Ran again while not going to something else: 2280353
+Plugged power in: 1394460
+Weird mac setting: 1034029
