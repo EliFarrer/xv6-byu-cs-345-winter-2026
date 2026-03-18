@@ -24,7 +24,7 @@ struct kmem {
   struct spinlock lock;
   struct run *freelist; // linked list, protected by lock
   uint32 count;         // count of items in freelist, protected by lock
-  char name[BUF_SZ];    // holds the name
+  // char name[BUF_SZ];    // holds the name
 };
 
 struct kmem kmems[NCPU];
@@ -32,9 +32,10 @@ struct kmem kmems[NCPU];
 void
 kinit()
 {
+  char buf[BUF_SZ];
   for (int i = 0; i < NCPU; i++) {
-    snprintf(kmems[i].name, BUF_SZ, "kmem_%d", i); // limited to six characters
-    initlock(&kmems[i].lock, kmems[i].name);
+    snprintf(buf, BUF_SZ, "kmem_%d", i); // limited to six characters
+    initlock(&kmems[i].lock, buf);
     kmems[i].count = 0;
     kmems[i].freelist = 0;
   }
