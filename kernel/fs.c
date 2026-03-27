@@ -385,32 +385,32 @@ bmap(struct inode *ip, uint bn)
   uint addr, *a;
   struct buf *bp;
 
-  if(bn < NDIRECT){
-    if((addr = ip->addrs[bn]) == 0){
+  if(bn < NDIRECT){ // if it is a direct mapping
+    if((addr = ip->addrs[bn]) == 0){  // if it isn't allocated
       addr = balloc(ip->dev);
-      if(addr == 0)
+      if(addr == 0) // fail
         return 0;
       ip->addrs[bn] = addr;
     }
-    return addr;
+    return addr;  // return the address of disk memory
   }
-  bn -= NDIRECT;
+  bn -= NDIRECT;  // if it is greater, we want to index into the indirect array
 
   if(bn < NINDIRECT){
     // Load indirect block, allocating if necessary.
     if((addr = ip->addrs[NDIRECT]) == 0){
-      addr = balloc(ip->dev);
+      addr = balloc(ip->dev); // allocate if it doesn't exist
       if(addr == 0)
         return 0;
       ip->addrs[NDIRECT] = addr;
     }
-    bp = bread(ip->dev, addr);
+    bp = bread(ip->dev, addr);  // read into the block from disk
     a = (uint*)bp->data;
-    if((addr = a[bn]) == 0){
+    if((addr = a[bn]) == 0){  // if the block within the indirect block isn't allocated, allocate it
       addr = balloc(ip->dev);
       if(addr){
-        a[bn] = addr;
-        log_write(bp);
+        a[bn] = addr; // we modify the block here so we need to write it with the log
+        log_write(bp);  // stage modified block rather than writing it immediately
       }
     }
     brelse(bp);
@@ -430,7 +430,7 @@ itrunc(struct inode *ip)
   uint *a;
 
   for(i = 0; i < NDIRECT; i++){
-    if(ip->addrs[i]){
+    if(ip->addrs[i]){ // if it exists, free and set to 0
       bfree(ip->dev, ip->addrs[i]);
       ip->addrs[i] = 0;
     }
@@ -440,15 +440,15 @@ itrunc(struct inode *ip)
     bp = bread(ip->dev, ip->addrs[NDIRECT]);
     a = (uint*)bp->data;
     for(j = 0; j < NINDIRECT; j++){
-      if(a[j])
+      if(a[j])  // if it exists, free and set to 0
         bfree(ip->dev, a[j]);
     }
     brelse(bp);
-    bfree(ip->dev, ip->addrs[NDIRECT]);
+    bfree(ip->dev, ip->addrs[NDIRECT]); // free the indirect block itself
     ip->addrs[NDIRECT] = 0;
   }
 
-  ip->size = 0;
+  ip->size = 0; // reset the size of the file
   iupdate(ip);
 }
 
