@@ -306,11 +306,11 @@ create(char *path, short type, short major, short minor)
 uint64
 sys_open(void)
 {
-  char path[MAXPATH];
+  char path[MAXPATH], next_path[MAXPATH];
   int fd, omode;
   struct file *f;
   struct inode *ip;
-  int n;
+  int n, read;
 
   argint(1, &omode);
   if((n = argstr(0, path, MAXPATH)) < 0)
@@ -319,7 +319,7 @@ sys_open(void)
   begin_op();
 
   if(omode & O_CREATE){
-    ip = create(path, T_FILE, 0, 0);  // create the inode if necessary
+    ip = create((char *)path, T_FILE, 0, 0);  // create the inode if necessary
     if(ip == 0){
       end_op();
       return -1;
@@ -336,8 +336,35 @@ sys_open(void)
       return -1;
     }
   }
+  
+  int iterations = 0;
+  while (!(omode & O_NOFOLLOW) && ip->type == T_SYMLINK) { // while we are supposed to follow, we are in iteration limit, and it is a symlink
+    if (iterations >= 10) {
+      iunlockput(ip);
+      end_op();
+      return -1;
+    }
+    // recursive case
+    if ((read = readi(ip, 0, (uint64)next_path, 0, MAXPATH)) > MAXPATH){  // read the data as the next path.
+      iunlockput(ip);
+      end_op();
+      return -1;
+    }
+    iunlockput(ip);
+    if((ip = namei(next_path)) == 0){  // find the next inode
+      end_op();
+      return -1;
+    }
+    ilock(ip);  // lock it
+    if(ip->type == T_DIR && omode != O_RDONLY){ // can't open directory with read only
+      iunlockput(ip);
+      end_op();
+      return -1;
+    }
+    iterations++;
+  }
 
-  if(ip->type == T_DEVICE && (ip->major < 0 || ip->major >= NDEV)){
+  if(ip->type == T_DEVICE && (ip->major < 0 || ip->major >= NDEV)){ // device check
     iunlockput(ip);
     end_op();
     return -1;
@@ -370,6 +397,35 @@ sys_open(void)
   end_op();
 
   return fd;
+}
+
+uint64
+sys_symlink(void)
+{
+  char target[MAXPATH], path[MAXPATH];
+  struct inode *ip;
+
+  if(argstr(0, target, MAXPATH) < 0 || argstr(1, path, MAXPATH) < 0)
+    return -1;
+
+  begin_op();
+  if ((ip = create((char *)path, T_SYMLINK, 0, 0)) == 0) {  // create a new inode for the symlink. This sets up the directory and actualy file. Grabs lock and increments reference count.
+    // if create fails, there is no ip so we don't need to unlock and decrease the reference count
+    end_op();
+    return -1;
+  }
+
+  // write to the data block
+  uint len = strlen(target);
+  if (writei(ip, 0, (uint64)target, 0, len) != len) { // didn't write the correct data
+    iunlockput(ip);
+    end_op();
+    return -1;
+  }
+
+  iunlockput(ip);
+  end_op();
+  return 0;
 }
 
 uint64
