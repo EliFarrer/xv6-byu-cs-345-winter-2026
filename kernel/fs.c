@@ -357,7 +357,7 @@ iput(struct inode *ip)
     acquire(&itable.lock);
   }
 
-  ip->ref--;
+  ip->ref--;  // reference count to keep things in memory
   release(&itable.lock);
 }
 

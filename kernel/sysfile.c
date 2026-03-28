@@ -123,36 +123,38 @@ sys_fstat(void)
 uint64
 sys_link(void)
 {
+  // creates a new name for an inode. They point to the same data on disk.
   char name[DIRSIZ], new[MAXPATH], old[MAXPATH];
-  struct inode *dp, *ip;
+  struct inode *dp, *ip;  // directory pointer, inode pointer
 
   if(argstr(0, old, MAXPATH) < 0 || argstr(1, new, MAXPATH) < 0)
     return -1;
 
   begin_op();
-  if((ip = namei(old)) == 0){
+  if((ip = namei(old)) == 0){ // gets the inode for the path, increments reference count
     end_op();
     return -1;
   }
 
-  ilock(ip);
-  if(ip->type == T_DIR){
-    iunlockput(ip);
+  ilock(ip);  // locks the inode
+  if(ip->type == T_DIR){  // if directory, skip it
+    iunlockput(ip); // unlocks and decrements the reference for in memory inode
     end_op();
     return -1;
   }
 
-  ip->nlink++;
-  iupdate(ip);
+  ip->nlink++;  // increment the number of links (the reference count that may free the entire files)
+  iupdate(ip);  // copy to disk
   iunlock(ip);
 
-  if((dp = nameiparent(new, name)) == 0)
+  if((dp = nameiparent(new, name)) == 0)  // parent directory of the path, increment reference count
     goto bad;
   ilock(dp);
-  if(dp->dev != ip->dev || dirlink(dp, name, ip->inum) < 0){
+  if(dp->dev != ip->dev || dirlink(dp, name, ip->inum) < 0){  // if they are not the same device, actually links the name into the directory inode.
     iunlockput(dp);
     goto bad;
   }
+  // drop references
   iunlockput(dp);
   iput(ip);
 
@@ -317,18 +319,18 @@ sys_open(void)
   begin_op();
 
   if(omode & O_CREATE){
-    ip = create(path, T_FILE, 0, 0);
+    ip = create(path, T_FILE, 0, 0);  // create the inode if necessary
     if(ip == 0){
       end_op();
       return -1;
     }
   } else {
-    if((ip = namei(path)) == 0){
+    if((ip = namei(path)) == 0){  // find the inode otherwise
       end_op();
       return -1;
     }
-    ilock(ip);
-    if(ip->type == T_DIR && omode != O_RDONLY){
+    ilock(ip);  // lock it
+    if(ip->type == T_DIR && omode != O_RDONLY){ // can't open directory with read only
       iunlockput(ip);
       end_op();
       return -1;
@@ -341,7 +343,7 @@ sys_open(void)
     return -1;
   }
 
-  if((f = filealloc()) == 0 || (fd = fdalloc(f)) < 0){
+  if((f = filealloc()) == 0 || (fd = fdalloc(f)) < 0){  // allocate a file
     if(f)
       fileclose(f);
     iunlockput(ip);
