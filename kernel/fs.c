@@ -382,12 +382,10 @@ iunlockput(struct inode *ip)
 static uint
 bmap(struct inode *ip, uint bn)
 {
-  printf("bmap: starting\n");
   uint addr, *a, *a2;
   struct buf *bp, *bp2;
 
   if(bn < NDIRECT){ // if it is a direct mapping
-    printf("bmap: direct mapping\n");
     if((addr = ip->addrs[bn]) == 0){  // if it isn't allocated
       addr = balloc(ip->dev);
       if(addr == 0) // fail
@@ -399,7 +397,6 @@ bmap(struct inode *ip, uint bn)
   bn -= NDIRECT;  // if it is greater, we want to index into the indirect array
 
   if(bn < NINDIRECT){
-    printf("bmap: indirect mapping\n");
     // Load indirect block, allocating if necessary.
     if((addr = ip->addrs[NDIRECT]) == 0){
       addr = balloc(ip->dev); // allocate if it doesn't exist
@@ -422,14 +419,12 @@ bmap(struct inode *ip, uint bn)
   bn -= NINDIRECT;
 
   if(bn < NDINDIRECT){
-    printf("bmap: doubly indirect mapping\n");
     int dindirect_idx = NDIRECT + 1;  // idx 12
-    int indirect_idx = bn % NINDIRECT;  // index into the indirect block
+    int indirect_idx = bn / NINDIRECT;  // index into the indirect block
     int direct_idx = bn - (indirect_idx * NINDIRECT); // index into the direct block
 
     // First level: Load doubly indirect block, allocating if necessary.
     if((addr = ip->addrs[dindirect_idx]) == 0){
-      printf("bmap: allocating first level\n");
       addr = balloc(ip->dev); // allocate if it doesn't exist
       if(addr == 0)
         return 0;
@@ -440,33 +435,30 @@ bmap(struct inode *ip, uint bn)
 
     // Second level
     if((addr = a[indirect_idx]) == 0){  // if the indirect block within the doubly indirect block isn't allocated, allocate it
-      printf("bmap: allocating second level\n");
       addr = balloc(ip->dev);
-      if(addr == 0)
+      if(addr == 0) {
+        brelse(bp);
         return 0;
-      a[indirect_idx] = addr;
-      printf("bmap: calling bread second level\n");
-      bp2 = bread(ip->dev, addr);
-      a2 = (uint*)bp2->data;
-      
-      // Third level access directly
-      if((addr = a2[direct_idx]) == 0){  // if the block within the indirect block isn't allocated, allocate it
-        printf("bmap: allocating third level\n");
-        addr = balloc(ip->dev);
-        if(addr){
-          a2[direct_idx] = addr; // we modify the block here so we need to write it with the log
-          log_write(bp2);  // stage modified block rather than writing it immediately
-        }
       }
-      printf("bmap: releasing bp2\n");
-      brelse(bp2);
+      a[indirect_idx] = addr;
+      log_write(bp);
     }
-    printf("bmap: releasing bp\n");
+
     brelse(bp);
-    printf("bmap: returning");
+    bp2 = bread(ip->dev, addr);
+    a2 = (uint*)bp2->data;
+    
+    // Third level access directly
+    if((addr = a2[direct_idx]) == 0){  // if the block within the indirect block isn't allocated, allocate it
+      addr = balloc(ip->dev);
+      if(addr){
+        a2[direct_idx] = addr; // we modify the block here so we need to write it with the log
+        log_write(bp2);  // stage modified block rather than writing it immediately
+      }
+    }
+    brelse(bp2);
     return addr;
   }
-
   panic("bmap: out of range");
 }
 
@@ -486,7 +478,6 @@ itrunc(struct inode *ip)
       ip->addrs[i] = 0;
     }
   }
-
   if(ip->addrs[NDIRECT]){
     bp = bread(ip->dev, ip->addrs[NDIRECT]);
     a = (uint*)bp->data;
@@ -506,6 +497,7 @@ itrunc(struct inode *ip)
     for(k = 0; k < NINDIRECT; k++){
       bn2 = &a[k];              // get the block number storing the second level of addresses
       if(*bn2) { // if it exists, free and set to 0
+        brelse(bp);
         bp2 = bread(ip->dev, *bn2);
         a2 = (uint*)bp2->data;
         for(l = 0; l < NINDIRECT; l++){
@@ -515,9 +507,10 @@ itrunc(struct inode *ip)
         brelse(bp2);
         bfree(ip->dev, *bn2);
         *bn2 = 0;
+      } else {
+        brelse(bp);
       }
     }
-    brelse(bp);
     bfree(ip->dev, *bn); // free the indirect block itself
     *bn = 0;
   }
