@@ -421,7 +421,7 @@ bmap(struct inode *ip, uint bn)
   if(bn < NDINDIRECT){
     int dindirect_idx = NDIRECT + 1;  // idx 12
     int indirect_idx = bn / NINDIRECT;  // index into the indirect block
-    int direct_idx = bn - (indirect_idx * NINDIRECT); // index into the direct block
+    int direct_idx = bn % NINDIRECT; // index into the direct block
 
     // First level: Load doubly indirect block, allocating if necessary.
     if((addr = ip->addrs[dindirect_idx]) == 0){
@@ -443,7 +443,6 @@ bmap(struct inode *ip, uint bn)
       a[indirect_idx] = addr;
       log_write(bp);
     }
-
     brelse(bp);
     bp2 = bread(ip->dev, addr);
     a2 = (uint*)bp2->data;
@@ -470,7 +469,6 @@ itrunc(struct inode *ip)
   int i, j, k, l;
   struct buf *bp, *bp2;
   uint *a, *a2;
-  uint *bn, *bn2;
 
   for(i = 0; i < NDIRECT; i++){
     if(ip->addrs[i]){ // if it exists, free and set to 0
@@ -490,29 +488,24 @@ itrunc(struct inode *ip)
     ip->addrs[NDIRECT] = 0;
   }
 
-  bn = &ip->addrs[NDIRECT + 1]; // get the block number storing the first level of indirect addresses
-  if(*bn){
-    bp = bread(ip->dev, *bn);
+  if(ip->addrs[NDIRECT + 1]){
+    bp = bread(ip->dev, ip->addrs[NDIRECT + 1]);
     a = (uint*)bp->data;
     for(k = 0; k < NINDIRECT; k++){
-      bn2 = &a[k];              // get the block number storing the second level of addresses
-      if(*bn2) { // if it exists, free and set to 0
-        brelse(bp);
-        bp2 = bread(ip->dev, *bn2);
+      if(a[k]) { // if it exists, free and set to 0
+        bp2 = bread(ip->dev, a[k]);
         a2 = (uint*)bp2->data;
         for(l = 0; l < NINDIRECT; l++){
           if(a2[l])
             bfree(ip->dev, a2[l]);
         }
         brelse(bp2);
-        bfree(ip->dev, *bn2);
-        *bn2 = 0;
-      } else {
-        brelse(bp);
+        bfree(ip->dev, a[k]);
       }
     }
-    bfree(ip->dev, *bn); // free the indirect block itself
-    *bn = 0;
+    brelse(bp);
+    bfree(ip->dev, ip->addrs[NDIRECT + 1]); // free the indirect block itself
+    ip->addrs[NDIRECT + 1] = 0; // set the pointer back to 0
   }
 
   ip->size = 0; // reset the size of the file
