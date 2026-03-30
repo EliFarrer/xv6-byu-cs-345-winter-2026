@@ -693,3 +693,15 @@ procdump(void)
     printf("\n");
   }
 }
+
+void *
+proc_mmap(void *addr, size_t len, int prot, int flags, int fd, off_t offset)
+{
+  return (void*)0;
+}
+
+int
+proc_munmap(void *addr, size_t len)
+{
+  return 0;
+}

@@ -237,3 +237,17 @@ void            netinit(void);
 void            net_rx(char *buf, int len);
 
 #endif
+
+// for mmap lab
+void* proc_mmap(void *, size_t, int, int, int, off_t);
+int proc_munmap(void *, size_t);
+
+
+// debugging
+#define DEBUG_MODE 0
+
+#if DEBUG_MODE == 1
+    #define printd(...) printf(__VA_ARGS__)
+#else
+    #define printd(...) ((void)0)
+#endif
