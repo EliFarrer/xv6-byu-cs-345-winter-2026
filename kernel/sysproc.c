@@ -95,11 +95,35 @@ sys_uptime(void)
 uint64
 sys_mmap(void)
 {
+  // mmap(void *addr, size_t len, int prot, int flags, int fd, off_t offset)
+  uint64 addr;
+  size_t len;
+  int prot, flags, fd;
+  off_t offset;
+
+  argaddr(0, &addr);
+  argaddr(1, &len);
+  argint(2, &prot);
+  argint(3, &flags);
+  argint(4, &fd);
+  argaddr(5, &offset);
+
+  proc_mmap(addr, len, prot, flags, fd, offset);
+
   return -1;
 }
 
 uint64
 sys_munmap(void)
 {
+  // munmap(void *addr, size_t len)
+  uint64 addr;
+  size_t len;
+
+  argaddr(0, &addr);
+  argaddr(1, &len);
+
+  proc_mmap(addr, len);
+  
   return -1;
 }
