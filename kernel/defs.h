@@ -13,6 +13,17 @@ struct sleeplock;
 struct stat;
 struct superblock;
 
+typedef struct vma_t {
+  uint64 abs_start; // absolute start of the space in memory
+  uint64 abs_end;   // absole end of the space in memory
+  uint64 start;     // usable start of the space in memory
+  size_t len;     // len (bytes)
+  int prot;       // protections
+  int flags;
+  struct file *file;         // associated file
+  uint8 in_use;   // if in use or not
+} vma_t;
+
 // bio.c
 void            binit(void);
 struct buf*     bread(uint, uint);
@@ -110,6 +121,9 @@ void            yield(void);
 int             either_copyout(int user_dst, uint64 dst, void *src, uint64 len);
 int             either_copyin(void *dst, int user_src, uint64 src, uint64 len);
 void            procdump(void);
+vma_t*          proc_vma_alloc(uint64 start, uint64 end, size_t len, int prot, int flags, struct file* f, struct proc* proc);
+int             mmapfaultchecker(pagetable_t pagetable, uint64 pageva, uint64 scause);
+int             mmapfaulthandler(pagetable_t pagetable, pte_t* pte, uint64 pageva, struct inode* ip, uint64 scause);
 
 // swtch.S
 void            swtch(struct context*, struct context*);
@@ -187,6 +201,13 @@ void            vmprint(pagetable_t);
 #ifdef LAB_PGTBL
 pte_t*          pgpte(pagetable_t, uint64);
 #endif
+vma_t*          vma_alloc(uint64 abs_start, uint64 abs_end, uint64 start, size_t len, int prot, int flags, struct file* f);
+void            vma_copy(vma_t *vma);
+void            vma_dealloc(vma_t *vma);
+int             vma_includes(vma_t *vma, uint64 va);
+void            vma_adjust(vma_t *vma);
+void            vma_print(vma_t *vma);
+struct inode*   vmas_get_inode(uint64 va);
 
 // plic.c
 void            plicinit(void);
@@ -244,7 +265,7 @@ int proc_munmap(void *, size_t);
 
 
 // debugging
-#define DEBUG_MODE 0
+#define DEBUG_MODE 1
 
 #if DEBUG_MODE == 1
     #define printd(...) printf(__VA_ARGS__)

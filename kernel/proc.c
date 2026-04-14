@@ -5,6 +5,8 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+#include "file.h"
+#include "fcntl.h"
 
 struct cpu cpus[NCPU];
 
@@ -55,6 +57,7 @@ procinit(void)
       initlock(&p->lock, "proc");
       p->state = UNUSED;
       p->kstack = KSTACK((int) (p - proc));
+      p->next_vma = VMAS;
   }
 }
 
@@ -127,6 +130,7 @@ found:
 
   // Allocate a trapframe page.
   if((p->trapframe = (struct trapframe *)kalloc()) == 0){
+    printd("allocproc: calling freeproc 1\n");
     freeproc(p);
     release(&p->lock);
     return 0;
@@ -135,6 +139,7 @@ found:
   // An empty user page table.
   p->pagetable = proc_pagetable(p);
   if(p->pagetable == 0){
+    printd("allocproc: calling freeproc 2\n");
     freeproc(p);
     release(&p->lock);
     return 0;
@@ -158,8 +163,10 @@ freeproc(struct proc *p)
   if(p->trapframe)
     kfree((void*)p->trapframe);
   p->trapframe = 0;
-  if(p->pagetable)
+  if(p->pagetable) {
+    printd("freeproc: free the pagetable\n");
     proc_freepagetable(p->pagetable, p->sz);
+  }
   p->pagetable = 0;
   p->sz = 0;
   p->pid = 0;
@@ -187,6 +194,7 @@ proc_pagetable(struct proc *p)
   // at the highest user virtual address.
   // only the supervisor uses it, on the way
   // to/from user space, so not PTE_U.
+  printd("proc_pagetable: uvmfree 1\n");
   if(mappages(pagetable, TRAMPOLINE, PGSIZE,
               (uint64)trampoline, PTE_R | PTE_X) < 0){
     uvmfree(pagetable, 0);
@@ -195,6 +203,7 @@ proc_pagetable(struct proc *p)
 
   // map the trapframe page just below the trampoline page, for
   // trampoline.S.
+  printd("proc_pagetable: uvmfree 2\n");
   if(mappages(pagetable, TRAPFRAME, PGSIZE,
               (uint64)(p->trapframe), PTE_R | PTE_W) < 0){
     uvmunmap(pagetable, TRAMPOLINE, 1, 0);
@@ -212,6 +221,7 @@ proc_freepagetable(pagetable_t pagetable, uint64 sz)
 {
   uvmunmap(pagetable, TRAMPOLINE, 1, 0);
   uvmunmap(pagetable, TRAPFRAME, 1, 0);
+  printd("proc_freepagetable: uvmfree\n");
   uvmfree(pagetable, sz);
 }
 
@@ -290,6 +300,7 @@ fork(void)
 
   // Copy user memory from parent to child.
   if(uvmcopy(p->pagetable, np->pagetable, p->sz) < 0){
+    printd("fork: calling freeproc\n");
     freeproc(np);
     release(&np->lock);
     return -1;
@@ -414,6 +425,7 @@ wait(uint64 addr)
             release(&wait_lock);
             return -1;
           }
+          printd("wait: calling freeproc\n");
           freeproc(pp);
           release(&pp->lock);
           release(&wait_lock);
@@ -697,11 +709,127 @@ procdump(void)
 void *
 proc_mmap(void *addr, size_t len, int prot, int flags, int fd, off_t offset)
 {
-  return (void*)0;
+  struct file *f;
+  vma_t *vma;
+  uint64 start, end;
+  struct proc *proc = myproc();
+  uint64 next = proc->next_vma;
+
+  if (len < 0) {
+    return 0;
+  }
+
+  if(fd < 0 || fd >= NOFILE || (f=proc->ofile[fd]) == 0) {
+    return 0;
+  }
+  filedup(f); // increment reference count
+
+  // the math for the start and the end
+  start = next - (PGROUNDUP(len));
+  end = next;
+  vma = proc_vma_alloc(start, end, len, prot, flags, f, proc);
+  next = start - PGSIZE;
+
+  // get the flags that we need
+  int pte_flags = PTE_U | PTE_MMAP ; // set the PTE_MMAP bit, User, valid bit not set so it will properly pagefault
+  if (prot & PROT_READ) { printd("proc_mmap: adding read\n"); pte_flags |= PTE_R; }  // set read bit if PROT_READ
+  if (prot & PROT_WRITE) { printd("proc_mmap: adding write\n"); pte_flags |= PTE_W; } // set write bit if PROT_WRITE
+
+  // allocate and map the memory
+  mappages(proc->pagetable, start, len, (uint64)0, pte_flags); // map it to 0 for now
+  return (void*)vma->start;
 }
 
 int
 proc_munmap(void *addr, size_t len)
 {
+  // close will decrement the reference countings
   return 0;
 }
+
+// sets the vma in the struct process and calls vma_alloc to find an open global vma
+vma_t*
+proc_vma_alloc(uint64 start, uint64 end, size_t len, int prot, int flags, struct file* f, struct proc* proc)
+{
+  vma_t *vma;
+  int found = 0;
+  for (int i = 0; i < NVMAS; i++) {
+    if (proc->proc_vmas[i] == 0){ // vma holder is open
+      vma = vma_alloc(start, end, start, len, prot, flags, f);
+      proc->proc_vmas[i] = vma;
+      found = 1;
+      break;
+    }
+  }
+  if (!found) {
+    panic("No open vma found in the process");
+  }
+
+  return vma;
+}
+
+// does basic sanity checking after trapping
+int
+mmapfaultchecker(pagetable_t pagetable, uint64 pageva, uint64 scause) {
+  pte_t *pte;
+  struct inode* ip;
+
+  if(pageva >= MAXVA) return -1;  // if the page is outside of the valid range
+
+  if((pte = walk(pagetable, pageva, 0)) == 0) return -1;  // if it is not mapped to physical memory
+
+  if ((ip = vmas_get_inode(pageva)) == 0) return -1;  // no vma mapping exists for that address
+  
+  if (*pte & PTE_MMAP) return mmapfaulthandler(pagetable, pte, pageva, ip, scause); // if it is not a mmap page, then we are trying to write to bad memory
+  
+  if((*pte & PTE_V) == 0) return -2;  // not valid and not an MMAP page means actual page fault
+
+  return -3; // trying to write to non-writeable memory
+}
+
+// returns 0 if it was handled
+// returns -1 otherwise
+int
+mmapfaulthandler(pagetable_t pagetable, pte_t* pte, uint64 pageva, struct inode* ip, uint64 scause) {
+  // if it is a read fault, the page has not ever been allocated (because anything can read if that flag is set)
+  // if we are trying to write to a MAP_PRIVATE, we need to create a copy
+  // MAP_SHARED will only get here if it is the first time, in which case we need to create a copy
+  // basically no matter what, we will copy something if it gets here.
+
+  char *mem;
+  int tot;
+
+  // allocate a page
+  if((mem = kalloc()) == 0) {
+    return -1;
+  }
+  
+  // readi
+  if ((tot = readi(ip, 1, pageva, 0, PGSIZE)) != PGSIZE) {  // virtual address, offset 0, PGSIZE bytes
+    kfree(mem);
+    panic("readi failed");
+  }
+  iunlock(ip);  // releases the lock from the read data, we don't use iput because that will decrease the reference count (which we only want to do in munmap)
+  
+  // map it
+  mappages(proc->pagetable, pageva, PGSIZE, (uint64)mem, PTE_FLAGS(*pte) | PTE_V); // add the flags along with the valid bit
+  
+  return 0;
+}
+
+// check scause
+// check address is valid
+
+// check the cow lab for the sanity checks here
+
+// page is valid, and getting a fault, we exit
+
+// you could use a sueprvisor bit or look through the whole array to see if it is contained in there
+
+// kalloc the memory, then get the correct page from the file....
+
+// prot write need to error check, see if they are trying to write to somethign they can't
+
+// store fault with prot write
+
+// assume prot write means prot read

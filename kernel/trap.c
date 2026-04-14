@@ -65,6 +65,15 @@ usertrap(void)
     intr_on();
 
     syscall();
+  } else if ((r_scause() == PGSTOREFAULT) || (r_scause() == PGLOADFAULT)) {
+    printd("usertrap: pagefault\n");
+    // kills processes that fail the fault handler
+    uint64 page = r_stval();
+    int ret = mmapfaultchecker(p->pagetable, PGROUNDDOWN(page), r_scause());
+    if (ret < 0) {
+      printf("mmap pagefault with code %d\n", ret);
+      setkilled(p);
+    }
   } else if((which_dev = devintr()) != 0){
     // ok
   } else {

@@ -1,3 +1,6 @@
+#include "defs.h"
+#include "memlayout.h"
+
 // Saved registers for kernel context switches.
 struct context {
   uint64 ra;
@@ -99,6 +102,8 @@ struct proc {
   uint64 kstack;               // Virtual address of kernel stack
   uint64 sz;                   // Size of process memory (bytes)
   pagetable_t pagetable;       // User page table
+  uint64 next_vma;             // Next available VMA
+  vma_t *proc_vmas[NVMAS];    // list of all of the VMA's owned by the process
   struct trapframe *trapframe; // data page for trampoline.S
   struct context context;      // swtch() here to run process
   struct file *ofile[NOFILE];  // Open files

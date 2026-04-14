@@ -99,7 +99,8 @@ sys_mmap(void)
   uint64 addr;
   size_t len;
   int prot, flags, fd;
-  off_t offset;
+  unsigned long offset;
+  void *mapped;
 
   argaddr(0, &addr);
   argaddr(1, &len);
@@ -108,9 +109,10 @@ sys_mmap(void)
   argint(4, &fd);
   argaddr(5, &offset);
 
-  proc_mmap(addr, len, prot, flags, fd, offset);
-
-  return -1;
+  if ((mapped = proc_mmap((void *)addr, (size_t)len, prot, flags, fd, (off_t)offset)) == 0) {
+    return (uint64)-1;
+  }
+  return (uint64)mapped;
 }
 
 uint64
@@ -123,7 +125,7 @@ sys_munmap(void)
   argaddr(0, &addr);
   argaddr(1, &len);
 
-  proc_mmap(addr, len);
+  proc_munmap((void *)addr, len);
   
   return -1;
 }

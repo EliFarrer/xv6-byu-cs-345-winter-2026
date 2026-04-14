@@ -5,6 +5,8 @@
 #include "riscv.h"
 #include "defs.h"
 #include "fs.h"
+#include "file.h"
+// #include "spinlock.h"
 
 /*
  * the kernel's page table.
@@ -14,6 +16,9 @@ pagetable_t kernel_pagetable;
 extern char etext[];  // kernel.ld sets this to end of kernel code.
 
 extern char trampoline[]; // trampoline.S
+
+struct spinlock vmas_lock;  // protects vmas and the next_vma
+vma_t vmas[NVMAS];
 
 // Make a direct-map page table for the kernel.
 pagetable_t
@@ -54,6 +59,7 @@ void
 kvminit(void)
 {
   kernel_pagetable = kvmmake();
+  initlock(&vmas_lock, "vmas_lock");
 }
 
 // Switch h/w page table register to the kernel's page table,
@@ -298,6 +304,7 @@ freewalk(pagetable_t pagetable)
 void
 uvmfree(pagetable_t pagetable, uint64 sz)
 {
+  printd("uvmfree\n");
   if(sz > 0)
     uvmunmap(pagetable, 0, PGROUNDUP(sz)/PGSIZE, 1);
   freewalk(pagetable);
@@ -448,4 +455,95 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
   } else {
     return -1;
   }
+}
+
+// grabs the first open vma and sets everything.
+vma_t*
+vma_alloc(uint64 abs_start, uint64 abs_end, uint64 start, size_t len, int prot, int flags, struct file* f)
+{
+  acquire(&vmas_lock);
+  // find the first open vma 
+  int found = 0;
+  int i;
+  for (i = 0; i < NVMAS; i++) {
+    if (vmas[i].in_use == 0) { // if it is open
+      found = 1;
+      break;
+    }
+  }
+  if (!found) {
+    release(&vmas_lock);
+    panic("No open vma found in the global vma array");
+  }
+  // set everything
+  vmas[i].abs_start = abs_start;
+  vmas[i].abs_end = abs_end;
+  vmas[i].start = start;
+  vmas[i].len = len;
+  vmas[i].prot = prot;
+  vmas[i].flags = flags;
+  vmas[i].file = f;
+  vmas[i].in_use = 1;
+  release(&vmas_lock);
+
+  return vmas + i;
+}
+
+void
+vma_copy(vma_t *vma)
+{
+  acquire(&vmas_lock);
+  // call this with fork?
+  release(&vmas_lock);
+}
+
+void
+vma_dealloc(vma_t *vma)
+{
+  // write back
+  // zero out
+}
+
+int
+vma_includes(vma_t *vma, uint64 va)
+{
+  acquire(&vmas_lock);
+  int val = (vma->start <= va) && (va < vma->start + vma->len);
+  release(&vmas_lock);
+  return val;
+}
+
+void
+vma_adjust(vma_t *vma)
+{
+
+}
+
+// void
+// vma_print(vma_t *vma)
+// {
+
+// }
+
+// searches through all the vma's. If the given address is in the vma range,
+// it returns that vma's file inode, otherwise, it returns 0.
+// It does call ilock on the inode.
+struct inode*
+vmas_get_inode(uint64 va)
+{
+  struct inode *ip;
+  acquire(&vmas_lock);
+  for (int i = 0; i < NVMAS; i++) {
+    if (vma_includes(vmas + i, va)) {
+      release(&vmas_lock);
+      ip = vmas[i].file->ip;
+      ilock(ip);
+      return ip;
+    }
+  }
+  // check if in range
+  // if not found it was an actual pagefault
+  // if it was found, get the inode and pass it to mmapfaulthandler
+  release(&vmas_lock);
+  return (struct inode*)0;
 }
