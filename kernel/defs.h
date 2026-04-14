@@ -124,6 +124,7 @@ void            procdump(void);
 vma_t*          proc_vma_alloc(uint64 start, uint64 end, size_t len, int prot, int flags, struct file* f, struct proc* proc);
 int             mmapfaultchecker(pagetable_t pagetable, uint64 pageva, uint64 scause);
 int             mmapfaulthandler(pagetable_t pagetable, pte_t* pte, uint64 pageva, struct inode* ip, uint64 scause);
+struct inode*   get_inode_from_proc_vmas(uint64 va);
 
 // swtch.S
 void            swtch(struct context*, struct context*);
@@ -207,7 +208,6 @@ void            vma_dealloc(vma_t *vma);
 int             vma_includes(vma_t *vma, uint64 va);
 void            vma_adjust(vma_t *vma);
 void            vma_print(vma_t *vma);
-struct inode*   vmas_get_inode(uint64 va);
 
 // plic.c
 void            plicinit(void);
@@ -266,9 +266,11 @@ int proc_munmap(void *, size_t);
 
 // debugging
 #define DEBUG_MODE 1
+#define DEBUG_COLOR "\033[35m"
+#define DEBUG_RESET "\033[0m"
 
 #if DEBUG_MODE == 1
-    #define printd(...) printf(__VA_ARGS__)
+    #define printd(fmt, ...) printf(DEBUG_COLOR fmt DEBUG_RESET, ##__VA_ARGS__)
 #else
     #define printd(...) ((void)0)
 #endif
