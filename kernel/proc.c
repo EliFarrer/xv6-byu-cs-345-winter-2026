@@ -708,7 +708,7 @@ proc_mmap(void *addr, size_t len, int prot, int flags, int fd, off_t offset)
 {
   struct file *f;
   vma_t *vma;
-  uint64 start, end;
+  uint64 start;
   struct proc *proc = myproc();
   uint64 next = proc->next_vma;
 
@@ -723,14 +723,8 @@ proc_mmap(void *addr, size_t len, int prot, int flags, int fd, off_t offset)
 
   // the math for the start and the end
   start = next - (PGROUNDUP(len));
-  end = next;
-  vma = proc_vma_alloc(start, end, len, prot, flags, f, proc);
+  vma = proc_vma_alloc(start, len, prot, flags, f, proc);
   next = start - PGSIZE;
-
-  // get the flags that we need
-  int pte_flags = PTE_U | PTE_MMAP ; // set the PTE_MMAP bit, User, valid bit not set so it will properly pagefault
-  if (prot & PROT_READ) { pte_flags |= PTE_R; }  // set read bit if PROT_READ
-  if (prot & PROT_WRITE) { pte_flags |= PTE_W; } // set write bit if PROT_WRITE
 
   // allocate and map the memory
   // mappages(proc->pagetable, start, len, (uint64)0, pte_flags); // map it to 0 for now
@@ -746,13 +740,13 @@ proc_munmap(void *addr, size_t len)
 
 // sets the vma in the struct process and calls vma_alloc to find an open global vma
 vma_t*
-proc_vma_alloc(uint64 start, uint64 end, size_t len, int prot, int flags, struct file* f, struct proc* proc)
+proc_vma_alloc(uint64 start, size_t len, int prot, int flags, struct file* f, struct proc* proc)
 {
   vma_t *vma;
   int found = 0;
   for (int i = 0; i < NVMAS; i++) {
     if (proc->proc_vmas[i] == 0){ // vma holder is open
-      vma = vma_alloc(start, end, start, len, prot, flags, f);
+      vma = vma_alloc(start, len, prot, flags, f);
       proc->proc_vmas[i] = vma;
       found = 1;
       break;
@@ -769,69 +763,83 @@ proc_vma_alloc(uint64 start, uint64 end, size_t len, int prot, int flags, struct
 int
 mmapfaultchecker(pagetable_t pagetable, uint64 pageva, uint64 scause) {
   pte_t *pte;
-  struct inode* ip;
+  struct vma_t* vma;
 
   if(pageva >= MAXVA) return -1;  // if the page is outside of the valid range
 
-  if((pte = walk(pagetable, pageva, 0)) == 0) return -2;  // if it is not mapped to physical memory
-
-  if ((ip = get_inode_from_proc_vmas(pageva)) == 0) return -3;  // no vma mapping exists for that address
+  if(walkaddr(pagetable, pageva) != 0) return 0;  // if it is alread mapped to physical memory, we are good
   
-  return mmapfaulthandler(pagetable, pte, pageva, ip, scause); // if it is not a mmap page, then we are trying to write to bad memory
+  if ((vma = get_proc_vma_from_addr(pageva)) == 0) return -3;  // no vma mapping exists for that address
+  
+  pte = walk(pagetable, pageva, 0);
+  return mmapfaulthandler(pagetable, pte, pageva, vma, scause); // if it is not a mmap page, then we are trying to write to bad memory
 }
 
 // returns 0 if it was handled
 // returns -1 otherwise
 int
-mmapfaulthandler(pagetable_t pagetable, pte_t* pte, uint64 pageva, struct inode* ip, uint64 scause) {
+mmapfaulthandler(pagetable_t pagetable, pte_t* pte, uint64 pageva, struct vma_t* vma, uint64 scause) {
   // if it is a read fault, the page has not ever been allocated (because anything can read if that flag is set)
   // if we are trying to write to a MAP_PRIVATE, we need to create a copy
   // MAP_SHARED will only get here if it is the first time, in which case we need to create a copy
   // basically no matter what, we will copy something if it gets here.
-
+  
+  struct inode *ip = vma->file->ip;
   char *mem;
   int tot;
+  uint64 f_offset;
 
   // allocate a page
   if((mem = kalloc()) == 0) {
     return -4;
   }
-  
+
+  f_offset = vma->offset + vma->used_len; // gets the file offset
+  ilock(ip);
+
   // readi
-  if ((tot = readi(ip, 0, (uint64)mem, 0, PGSIZE)) != PGSIZE) {  // virtual address, offset 0, PGSIZE bytes
-    printf("mmapfaulthandler: readi total: %d\n", tot);
-    kfree(mem);
-    printd("mmapfaulthandler: unlock ip lock\n");
-    iunlock(ip);
-    panic("readi failed");
+  if (f_offset >= ip->size) {
+    memset((void*)(mem), 0, PGSIZE);  // set to all 0's
+  } else {
+    tot = readi(ip, 0, (uint64)mem, f_offset, PGSIZE);
+    if ((tot > PGSIZE) || (tot < 0)) {  // virtual address, offset 0, PGSIZE bytes
+      panic("readi failed > PGSIZE");
+    } else if (tot < PGSIZE) {  // if it didn't read all the way, fill in the rest with 0's
+      memset((void*)(mem + tot), 0, PGSIZE - tot);
+    }
   }
-  printd("mmapfaulthandler: unlock ip lock\n");
+
   iunlock(ip);  // releases the lock from the read data, we don't use iput because that will decrease the reference count (which we only want to do in munmap)
   
+  vma->used_len += PGSIZE; // add a page because we just added it
+
+  // get the flags that we need
+  int pte_flags = PTE_U; // set the PTE_MMAP bit, User, valid bit not set so it will properly pagefault
+  if (vma->prot & PROT_READ) { pte_flags |= PTE_R; }  // set read bit if PROT_READ
+  if (vma->prot & PROT_WRITE) { pte_flags |= PTE_W; } // set write bit if PROT_WRITE
+
   // map it
-  if (mappages(proc->pagetable, pageva, PGSIZE, (uint64)mem, PTE_FLAGS(*pte)) != 0) {
+  if (mappages(pagetable, pageva, PGSIZE, (uint64)mem, pte_flags) != 0) {
     kfree(mem);
-  }; // add the flags along with the valid bit
-  
+  }  
   return 0;
 }
 
-// check scause
-// check address is valid
-
-// check the cow lab for the sanity checks here
-
-// page is valid, and getting a fault, we exit
-
-// you could use a sueprvisor bit or look through the whole array to see if it is contained in there
-
-// kalloc the memory, then get the correct page from the file....
-
-// prot write need to error check, see if they are trying to write to somethign they can't
-
-// store fault with prot write
-
-// assume prot write means prot read
+// searches through all the vma's. If the given address is in the vma range,
+// it returns that vma, otherwise, it returns 0.
+struct vma_t*
+get_proc_vma_from_addr(uint64 va)
+{
+  struct vma_t* vma;
+  for (int i = 0; i < NVMAS; i++) {
+    vma = myproc()->proc_vmas[i];
+    if (vma == 0) continue;
+    if (vma_includes(vma, va)) {
+      return vma;
+    }
+  }
+  return (struct vma_t*)0;
+}
 
 // searches through all the vma's. If the given address is in the vma range,
 // it returns that vma's file inode, otherwise, it returns 0.
@@ -841,20 +849,10 @@ get_inode_from_proc_vmas(uint64 va)
 {
   struct inode *ip;
   struct vma_t* vma;
-  printd("vmas_get_inode: get vmas_lock\n");
-  for (int i = 0; i < NVMAS; i++) {
-    vma = myproc()->proc_vmas[i];
-    if (vma == 0) continue;
-    if (vma_includes(vma, va)) {
-      printd("vmas_get_inode: release vmas_lock\n");
-      ip = vma->file->ip;
-      printd("vmas_get_inode: get iplock\n");
-      ilock(ip);
-      return ip;
-    }
+  if ((vma = get_proc_vma_from_addr(va)) == 0) {
+    return (struct inode*)0;
   }
-  // check if in range
-  // if not found it was an actual pagefault
-  // if it was found, get the inode and pass it to mmapfaulthandler
-  return (struct inode*)0;
+  ip = vma->file->ip;
+  ilock(ip);
+  return ip;
 }

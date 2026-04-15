@@ -458,9 +458,8 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
 
 // grabs the first open vma and sets everything.
 vma_t*
-vma_alloc(uint64 abs_start, uint64 abs_end, uint64 start, size_t len, int prot, int flags, struct file* f)
+vma_alloc(uint64 start, size_t len, int prot, int flags, struct file* f)
 {
-  printd("vmaalloc: get vmas_lock\n");
   acquire(&vmas_lock);
   // find the first open vma 
   int found = 0;
@@ -472,20 +471,18 @@ vma_alloc(uint64 abs_start, uint64 abs_end, uint64 start, size_t len, int prot, 
     }
   }
   if (!found) {
-    printd("vmaalloc: release vmas_lock\n");
     release(&vmas_lock);
     panic("No open vma found in the global vma array");
   }
   // set everything
-  vmas[i].abs_start = abs_start;
-  vmas[i].abs_end = abs_end;
   vmas[i].start = start;
+  vmas[i].offset = 0;
+  vmas[i].used_len = 0;
   vmas[i].len = len;
   vmas[i].prot = prot;
   vmas[i].flags = flags;
   vmas[i].file = f;
   vmas[i].in_use = 1;
-  printd("vmaalloc: release vmas_lock\n");
   release(&vmas_lock);
 
   return vmas + i;

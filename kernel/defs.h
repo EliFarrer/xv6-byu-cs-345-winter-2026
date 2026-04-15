@@ -14,10 +14,10 @@ struct stat;
 struct superblock;
 
 typedef struct vma_t {
-  uint64 abs_start; // absolute start of the space in memory
-  uint64 abs_end;   // absole end of the space in memory
-  uint64 start;     // usable start of the space in memory
-  size_t len;     // len (bytes)
+  uint64 start; // absolute start of the space in memory (IMMUTABLE)
+  uint64 offset;   // relative offset into memory (starts at 0)
+  uint64 used_len; // length of the actual mapped data (starts at 0) 
+  size_t len;     // len (bytes) (IMMUTABLE)
   int prot;       // protections
   int flags;
   struct file *file;         // associated file
@@ -121,9 +121,10 @@ void            yield(void);
 int             either_copyout(int user_dst, uint64 dst, void *src, uint64 len);
 int             either_copyin(void *dst, int user_src, uint64 src, uint64 len);
 void            procdump(void);
-vma_t*          proc_vma_alloc(uint64 start, uint64 end, size_t len, int prot, int flags, struct file* f, struct proc* proc);
+vma_t*          proc_vma_alloc(uint64 start, size_t len, int prot, int flags, struct file* f, struct proc* proc);
 int             mmapfaultchecker(pagetable_t pagetable, uint64 pageva, uint64 scause);
-int             mmapfaulthandler(pagetable_t pagetable, pte_t* pte, uint64 pageva, struct inode* ip, uint64 scause);
+int             mmapfaulthandler(pagetable_t pagetable, pte_t* pte, uint64 pageva, struct vma_t* vma, uint64 scause);
+struct vma_t*   get_proc_vma_from_addr(uint64 va);
 struct inode*   get_inode_from_proc_vmas(uint64 va);
 
 // swtch.S
@@ -202,7 +203,7 @@ void            vmprint(pagetable_t);
 #ifdef LAB_PGTBL
 pte_t*          pgpte(pagetable_t, uint64);
 #endif
-vma_t*          vma_alloc(uint64 abs_start, uint64 abs_end, uint64 start, size_t len, int prot, int flags, struct file* f);
+vma_t*          vma_alloc(uint64 start, size_t len, int prot, int flags, struct file* f);
 void            vma_copy(vma_t *vma);
 void            vma_dealloc(vma_t *vma);
 int             vma_includes(vma_t *vma, uint64 va);
