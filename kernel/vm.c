@@ -6,6 +6,7 @@
 #include "defs.h"
 #include "fs.h"
 #include "file.h"
+#include "fcntl.h"
 // #include "spinlock.h"
 
 /*
@@ -460,6 +461,8 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
 vma_t*
 vma_alloc(uint64 start, size_t len, int prot, int flags, struct file* f)
 {
+  int real_prots = 0;
+  printd("vma_alloc: starting\n");
   acquire(&vmas_lock);
   // find the first open vma 
   int found = 0;
@@ -479,7 +482,13 @@ vma_alloc(uint64 start, size_t len, int prot, int flags, struct file* f)
   vmas[i].offset = 0;
   vmas[i].used_len = 0;
   vmas[i].len = len;
-  vmas[i].prot = prot;
+  if ((prot & PROT_READ) && (f->readable)) { 
+    real_prots |= PTE_R;
+  }  // set read bit if PROT_READ
+  if ((prot & PROT_WRITE) && (f->writable)) {
+    real_prots |= (PTE_W | PTE_R);
+  } // set write bit if PROT_WRITE, gets read and write automatically
+  vmas[i].prot = real_prots;
   vmas[i].flags = flags;
   vmas[i].file = f;
   vmas[i].in_use = 1;
@@ -499,8 +508,18 @@ vma_copy(vma_t *vma)
 void
 vma_dealloc(vma_t *vma)
 {
-  // write back
-  // zero out
+  printd("vma_dealloc: starting\n");
+  // zero everything
+  acquire(&vmas_lock);
+  vma->start = 0;
+  vma->offset = 0;
+  vma->used_len = 0;
+  vma->len = 0;
+  vma->prot = 0;
+  vma->flags = 0;
+  vma->file = 0;
+  vma->in_use = 0;
+  release(&vmas_lock);
 }
 
 // checks if a defined vma can include the given virtual memory. It does not check to see if it actually does or not
@@ -529,8 +548,15 @@ vma_adjust(vma_t *vma)
 
 }
 
-// void
-// vma_print(vma_t *vma)
-// {
-
-// }
+void
+vma_print(vma_t *vma)
+{
+  printd("vma at %p\n", vma);
+  printd("\tvma->start %lx\n", vma->start);
+  printd("\tvma->offset %lx\n", vma->offset);
+  printd("\tvma->used_len %lx\n", vma->used_len);
+  printd("\tvma->len %lx\n", vma->len);
+  printd("\tvma->prot %x\n", vma->prot);
+  printd("\tvma->flag %x\n", vma->flags);
+  printd("\tvma->in_use %d\n", vma->in_use);
+}

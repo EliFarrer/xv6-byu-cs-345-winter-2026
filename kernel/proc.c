@@ -164,7 +164,6 @@ freeproc(struct proc *p)
     kfree((void*)p->trapframe);
   p->trapframe = 0;
   if(p->pagetable) {
-    printd("freeproc: free the pagetable\n");
     proc_freepagetable(p->pagetable, p->sz);
   }
   p->pagetable = 0;
@@ -422,7 +421,6 @@ wait(uint64 addr)
             release(&wait_lock);
             return -1;
           }
-          printd("wait: calling freeproc\n");
           freeproc(pp);
           release(&pp->lock);
           release(&wait_lock);
@@ -711,30 +709,128 @@ proc_mmap(uint64 addr, size_t len, int prot, int flags, int fd, off_t offset)
   uint64 start;
   struct proc *proc = myproc();
   uint64 next = proc->next_vma;
+  printd("proc_mmap: starting\n");
 
   if (len < 0) {
+    printd("proc_mmap: bad length\n");
     return 0;
   }
 
   if(fd < 0 || fd >= NOFILE || (f=proc->ofile[fd]) == 0) {
+    printd("proc_mmap: bad fd\n");
     return 0;
   }
+
+  printd("file permissions: %x\n", f->writable);
+  printd("flags: %x\n", flags);
+  if (!(f->writable) && (flags & MAP_SHARED)) {
+    printd("proc_mmap: can't write when MAP_SHARED\n");
+    return 0;
+  }
+
+  printd("proc_mmap: increment ref count\n");
   filedup(f); // increment reference count
 
   // the math for the start and the end
+  printd("proc_mmap: get start and end\n");
   start = next - (PGROUNDUP(len));
   vma = proc_vma_alloc(start, len, prot, flags, f, proc);
   next = start - PGSIZE;
 
   // allocate and map the memory
-  // mappages(proc->pagetable, start, len, (uint64)0, pte_flags); // map it to 0 for now
-  return (void*)vma->start;
+  printd("proc_mmap: returning\n");
+  return vma->start;
 }
 
 int
-proc_munmap(void *addr, size_t len)
+proc_munmap(uint64 addr, size_t len)
 {
-  // close will decrement the reference countings
+  struct vma_t *vma;
+  int write_len;
+  pte_t *pte;
+  int npages = PGROUNDUP(len) / PGSIZE;
+  
+  printd("proc_munmap: starting\n");
+  if ((vma = get_proc_vma_from_addr(addr)) == 0) {
+    printd("proc_munmap: could not find the vma with the addr\n");
+    return -1; // find the vma
+  }
+  printd("proc_munmap: past vma addr\n");
+  if (vma_contains(vma, addr) != 1) {
+    printd("proc_munmap: found vma does not contain addr\n");
+    return -1;  // check that the given region is actuall contained within the actual mapping of the vma
+  }
+  printd("proc_munmap: past contains\n");
+
+  if (len < PGSIZE) {
+    write_len = len;
+  } else {
+    write_len = PGSIZE;
+  }
+  printd("proc_munmap: got write_len\n");
+
+  for (int i = 0; i < len; i += PGSIZE) {
+    printd("proc_munmap: iteration %d\n", i);
+    if ((pte = walk(myproc()->pagetable, addr + i, 0)) == 0) {
+      printd("proc_munmap: pte doesn't exist\n");
+      return -1;  // pte doesn't exist
+    }
+
+    if ((*pte & PTE_D) && (vma->flags & MAP_SHARED) && (vma->prot & PROT_WRITE)) {
+      printd("proc_munmap: writing page\n");
+      // write back (see filewrite)
+      filewrite(vma->file, addr + i, write_len);
+    }
+  }
+
+  // free pages and remove from pagetable
+  printd("proc_munmap: removing %d pages\n", npages);
+  if (walkaddr(myproc()->pagetable, addr) == 0) {
+    printd("address %lx is not mapped\n", addr);
+  } else {
+    printd("address %lx is mapped\n", addr);
+  }
+  uvmunmap(myproc()->pagetable, addr, npages, 1);
+  sfence_vma();
+
+  if (walkaddr(myproc()->pagetable, addr) == 0) {
+    printd("address %lx is not mapped\n", addr);
+  } else {
+    printd("address %lx is mapped\n", addr);
+  }
+  printd("pre vma\n");
+  vma_print(vma);
+  printd("addr: %lx\n", addr);
+  // adjust vma bounds
+  if ((vma->start + vma->offset) == addr) { // check if we unmap from the start
+    printd("adjusting start\n");
+    vma->offset += PGROUNDUP(len);
+    vma->used_len -= PGROUNDUP(len);
+  } else if ((vma->start + vma->offset + vma->used_len) == (addr + len)) {  // check if we unmap from the end
+    printd("adjusting end\n");
+    vma->used_len -= PGROUNDUP(len);
+  } else {
+    panic("unhandled range in proc_munmap");
+  }
+  printd("post vma\n");
+  vma_print(vma);
+  
+  if (vma->used_len == 0) {
+    fileclose(vma->file);
+    proc_vma_dealloc(myproc(), vma);
+  }
+  printd("proc_munmap: closed file\n");
+
+
+  // unmap the ranges
+    // if the page has been modified, and we are MAP_SHARED, then write back to file (filewrite)
+    // free the pages
+    // remove from pagetable
+    // remove from vma
+
+  // if the length of the vma is now 0, close the file to decrement the reference count
+  printd("proc_munmap: returning\n");
+
   return 0;
 }
 
@@ -744,6 +840,7 @@ proc_vma_alloc(uint64 start, size_t len, int prot, int flags, struct file* f, st
 {
   vma_t *vma;
   int found = 0;
+  printd("proc_vma_alloc: starting\n");
   for (int i = 0; i < NVMAS; i++) {
     if (proc->proc_vmas[i] == 0){ // vma holder is open
       vma = vma_alloc(start, len, prot, flags, f);
@@ -759,18 +856,50 @@ proc_vma_alloc(uint64 start, size_t len, int prot, int flags, struct file* f, st
   return vma;
 }
 
+int
+proc_vma_dealloc(struct proc* proc, vma_t *vma)
+{
+  printd("proc_vma_dealloc: starting\n");
+  int found = 0;
+  vma_dealloc(vma);
+  printd("cleared vma:\n");
+  vma_print(vma);
+  for (int i = 0; i < NVMAS; i++) {
+    if (proc->proc_vmas[i] == vma){ // if we found the vma
+      proc->proc_vmas[i] = 0;
+      found = 1;
+      break;
+    }
+  }
+  if (!found) {
+    panic("No vma found in the process to deallocate");
+  }
+
+  return 0;
+}
+
 // does basic sanity checking after trapping
 int
 mmapfaultchecker(pagetable_t pagetable, uint64 pageva, uint64 scause) {
+  printd("mmapfaultchecker: starting\n");
   pte_t *pte;
   struct vma_t* vma;
 
-  if(pageva >= MAXVA) return -1;  // if the page is outside of the valid range
+  if(pageva >= MAXVA) {
+    printd("mmapfaultchecker: pageva outside valid range\n");
+    return -1;  // if the page is outside of the valid range
+  }
 
-  if(walkaddr(pagetable, pageva) != 0) return 0;  // if it is alread mapped to physical memory, we are good
-  
-  if ((vma = get_proc_vma_from_addr(pageva)) == 0) return -3;  // no vma mapping exists for that address
-  
+  if(walkaddr(pagetable, pageva) != 0) {
+    printd("mmapfaultchecker: %lx address already mapped\n", pageva);
+    return -1;  // if it is alread mapped to physical memory, bad access of address
+  }
+
+  if ((vma = get_proc_vma_from_addr(pageva)) == 0) {
+    printd("mmapfaultchecker: no vma has the address\n");
+    return -3;  // no vma mapping exists for that address
+  }
+
   pte = walk(pagetable, pageva, 0);
   return mmapfaulthandler(pagetable, pte, pageva, vma, scause); // if it is not a mmap page, then we are trying to write to bad memory
 }
@@ -783,7 +912,7 @@ mmapfaulthandler(pagetable_t pagetable, pte_t* pte, uint64 pageva, struct vma_t*
   // if we are trying to write to a MAP_PRIVATE, we need to create a copy
   // MAP_SHARED will only get here if it is the first time, in which case we need to create a copy
   // basically no matter what, we will copy something if it gets here.
-  
+  printd("mmapfaulthandler: starting\n");
   struct inode *ip = vma->file->ip;
   char *mem;
   int tot;
@@ -795,16 +924,20 @@ mmapfaulthandler(pagetable_t pagetable, pte_t* pte, uint64 pageva, struct vma_t*
   }
 
   f_offset = vma->offset + vma->used_len; // gets the file offset
+  printd("mmapfaultchecker: f_offset %lx\n", f_offset);
   ilock(ip);
 
   // readi
   if (f_offset >= ip->size) {
+    printd("mmapfaultchecker: setting page to 0's\n");
     memset((void*)(mem), 0, PGSIZE);  // set to all 0's
   } else {
     tot = readi(ip, 0, (uint64)mem, f_offset, PGSIZE);
+    printd("mmapfaultchecker: reading file in at %lx\n", f_offset);
     if ((tot > PGSIZE) || (tot < 0)) {  // virtual address, offset 0, PGSIZE bytes
       panic("readi failed > PGSIZE");
     } else if (tot < PGSIZE) {  // if it didn't read all the way, fill in the rest with 0's
+      printd("mmapfaultchecker: setting %d to 0's\n", PGSIZE - tot);
       memset((void*)(mem + tot), 0, PGSIZE - tot);
     }
   }
@@ -815,8 +948,12 @@ mmapfaulthandler(pagetable_t pagetable, pte_t* pte, uint64 pageva, struct vma_t*
 
   // get the flags that we need
   int pte_flags = PTE_U; // set the PTE_MMAP bit, User, valid bit not set so it will properly pagefault
-  if (vma->prot & PROT_READ) { pte_flags |= PTE_R; }  // set read bit if PROT_READ
-  if (vma->prot & PROT_WRITE) { pte_flags |= PTE_W; } // set write bit if PROT_WRITE
+  if ((vma->prot & PROT_READ) && (vma->file->readable)) { 
+    pte_flags |= PTE_R;
+  }  // set read bit if PROT_READ
+  if ((vma->prot & PROT_WRITE) && (vma->file->writable)) {
+    pte_flags |= (PTE_W | PTE_R);
+  } // set write bit if PROT_WRITE, gets read and write automatically
 
   // map it
   if (mappages(pagetable, pageva, PGSIZE, (uint64)mem, pte_flags) != 0) {

@@ -122,6 +122,7 @@ int             either_copyout(int user_dst, uint64 dst, void *src, uint64 len);
 int             either_copyin(void *dst, int user_src, uint64 src, uint64 len);
 void            procdump(void);
 vma_t*          proc_vma_alloc(uint64 start, size_t len, int prot, int flags, struct file* f, struct proc* proc);
+int             proc_vma_dealloc(struct proc* proc, vma_t *vma);
 int             mmapfaultchecker(pagetable_t pagetable, uint64 pageva, uint64 scause);
 int             mmapfaulthandler(pagetable_t pagetable, pte_t* pte, uint64 pageva, struct vma_t* vma, uint64 scause);
 struct vma_t*   get_proc_vma_from_addr(uint64 va);
