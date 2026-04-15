@@ -1,7 +1,7 @@
-#ifdef LAB_MMAP
+// #ifdef LAB_MMAP
 typedef unsigned long size_t;
 typedef long int off_t;
-#endif
+// #endif
 struct buf;
 struct context;
 struct file;
@@ -207,6 +207,7 @@ vma_t*          vma_alloc(uint64 start, size_t len, int prot, int flags, struct 
 void            vma_copy(vma_t *vma);
 void            vma_dealloc(vma_t *vma);
 int             vma_includes(vma_t *vma, uint64 va);
+int             vma_contains(vma_t *vma, uint64 va);
 void            vma_adjust(vma_t *vma);
 void            vma_print(vma_t *vma);
 
@@ -261,8 +262,8 @@ void            net_rx(char *buf, int len);
 #endif
 
 // for mmap lab
-void* proc_mmap(void *, size_t, int, int, int, off_t);
-int proc_munmap(void *, size_t);
+uint64 proc_mmap(uint64, size_t, int, int, int, off_t);
+int proc_munmap(uint64, size_t);
 
 
 // debugging

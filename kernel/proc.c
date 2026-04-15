@@ -703,8 +703,8 @@ procdump(void)
   }
 }
 
-void *
-proc_mmap(void *addr, size_t len, int prot, int flags, int fd, off_t offset)
+uint64
+proc_mmap(uint64 addr, size_t len, int prot, int flags, int fd, off_t offset)
 {
   struct file *f;
   vma_t *vma;

@@ -503,12 +503,23 @@ vma_dealloc(vma_t *vma)
   // zero out
 }
 
+// checks if a defined vma can include the given virtual memory. It does not check to see if it actually does or not
 int
-vma_includes(vma_t *vma, uint64 va)
+vma_includes(vma_t *vma, uint64 va) // unlocked (assumes it is called on the process's vmas)
 {
-  acquire(&vmas_lock);
+  // acquire(&vmas_lock);
   int val = (vma->start <= va) && (va < vma->start + vma->len);
-  release(&vmas_lock);
+  // release(&vmas_lock);
+  return val;
+}
+
+// checks if a defined vma does include the given virtual memory. This means it checks in betweeen the offset adn the used_len
+int
+vma_contains(vma_t *vma, uint64 va) // unlocked (assumes it is called on the process's vmas)
+{
+  // acquire(&vmas_lock);
+  int val = ((vma->start + vma->offset) <= va) && (va < (vma->start + vma->offset + vma->used_len));
+  // release(&vmas_lock);
   return val;
 }
 
