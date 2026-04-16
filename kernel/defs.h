@@ -127,6 +127,7 @@ int             mmapfaultchecker(pagetable_t pagetable, uint64 pageva, uint64 sc
 int             mmapfaulthandler(pagetable_t pagetable, pte_t* pte, uint64 pageva, struct vma_t* vma, uint64 scause);
 struct vma_t*   get_proc_vma_from_addr(uint64 va);
 struct inode*   get_inode_from_proc_vmas(uint64 va);
+void            proc_vma_copy(struct proc *p, struct proc *np);
 
 // swtch.S
 void            swtch(struct context*, struct context*);
@@ -205,7 +206,7 @@ void            vmprint(pagetable_t);
 pte_t*          pgpte(pagetable_t, uint64);
 #endif
 vma_t*          vma_alloc(uint64 start, size_t len, int prot, int flags, struct file* f);
-void            vma_copy(vma_t *vma);
+vma_t*          vma_copy(vma_t *src_vma);
 void            vma_dealloc(vma_t *vma);
 int             vma_includes(vma_t *vma, uint64 va);
 int             vma_contains(vma_t *vma, uint64 va);
@@ -272,7 +273,7 @@ int proc_munmap(uint64, size_t);
 #define DEBUG_COLOR "\033[35m"
 #define DEBUG_RESET "\033[0m"
 
-#if DEBUG_MODE == 1
+#if DEBUG_MODE == 0
     #define printd(fmt, ...) printf(DEBUG_COLOR fmt DEBUG_RESET, ##__VA_ARGS__)
 #else
     #define printd(...) ((void)0)

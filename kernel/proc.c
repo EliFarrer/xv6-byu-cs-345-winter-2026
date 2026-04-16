@@ -329,6 +329,8 @@ fork(void)
   np->state = RUNNABLE;
   release(&np->lock);
 
+  proc_vma_copy(p, np);
+
   return pid;
 }
 
@@ -354,6 +356,13 @@ void
 exit(int status)
 {
   struct proc *p = myproc();
+
+  for (int i = 0; i < NVMAS; i++) {
+    printd("iteration: %d\n", i);
+    if (p->proc_vmas[i] == 0) continue;
+    proc_munmap(p->proc_vmas[i]->start, p->proc_vmas[i]->len);
+    printd("in exit\n");
+  }
 
   if(p == initproc)
     panic("init exiting");
@@ -720,7 +729,8 @@ proc_mmap(uint64 addr, size_t len, int prot, int flags, int fd, off_t offset)
     return 0;
   }
 
-  if (!(f->writable) && (flags & MAP_SHARED)) {
+  // if it is private, we can do whatever
+  if ((flags & MAP_SHARED) && (prot & PROT_WRITE) && !(f->writable)) {
     printd("proc_mmap: can't write when MAP_SHARED\n");
     return 0;
   }
@@ -766,7 +776,6 @@ proc_munmap(uint64 addr, size_t len)
 
     increment = min(PGSIZE, vma->len - (addr - vma->start));
     write_back = min(increment, vma->file->ip->size - vma->offset);
-    vma_print(vma);
 
     if ((*pte & PTE_D) && (vma->flags & MAP_SHARED) && (vma->prot & PROT_WRITE)) {
       begin_op();
@@ -794,7 +803,6 @@ proc_munmap(uint64 addr, size_t len)
     } else {
       panic("unhandled range in proc_munmap");
     }
-    vma_print(vma);
 
     if (*pte & PTE_V) {
       uvmunmap(myproc()->pagetable, addr + i, 1, 1);
@@ -808,6 +816,7 @@ proc_munmap(uint64 addr, size_t len)
     fileclose(vma->file);
     proc_vma_dealloc(myproc(), vma);
   }
+  printd("proc_munmap: finished deallocating\n");
   return 0;
 }
 
@@ -839,7 +848,7 @@ proc_vma_dealloc(struct proc* proc, vma_t *vma)
   printd("proc_vma_dealloc: starting\n");
   int found = 0;
   vma_dealloc(vma);
-  // printd("cleared vma:\n");
+  printd("proc_vma_dealloc: cleared vma\n");
   // vma_print(vma);
   for (int i = 0; i < NVMAS; i++) {
     if (proc->proc_vmas[i] == vma){ // if we found the vma
@@ -851,8 +860,19 @@ proc_vma_dealloc(struct proc* proc, vma_t *vma)
   if (!found) {
     panic("No vma found in the process to deallocate");
   }
-
+  printd("proc_vma_dealloc: returning\n");
   return 0;
+}
+
+void
+proc_vma_copy(struct proc *p, struct proc *np)
+{
+  for (int i = 0; i < NVMAS; i++) {
+    if (p->proc_vmas[i] == 0) continue;
+    struct vma_t *vma = vma_copy(p->proc_vmas[i]);
+    np->proc_vmas[i] = vma;
+    filedup(np->proc_vmas[i]->file);
+  }
 }
 
 // does basic sanity checking after trapping

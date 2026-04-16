@@ -457,16 +457,13 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
   }
 }
 
-// grabs the first open vma and sets everything.
 vma_t*
-vma_alloc(uint64 start, size_t len, int prot, int flags, struct file* f)
+vma_find_and_lock()
 {
-  int real_prots = 0;
-  printd("vma_alloc: starting\n");
-  acquire(&vmas_lock);
-  // find the first open vma 
   int found = 0;
   int i;
+
+  acquire(&vmas_lock);
   for (i = 0; i < NVMAS; i++) {
     if (vmas[i].in_use == 0) { // if it is open
       found = 1;
@@ -477,11 +474,23 @@ vma_alloc(uint64 start, size_t len, int prot, int flags, struct file* f)
     release(&vmas_lock);
     panic("No open vma found in the global vma array");
   }
+  return vmas + i;
+}
+
+// grabs the first open vma and sets everything.
+vma_t*
+vma_alloc(uint64 start, size_t len, int prot, int flags, struct file* f)
+{
+  int real_prots = 0;
+  vma_t *vma;
+  printd("vma_alloc: starting\n");
+  // find the first open vma 
+  vma = vma_find_and_lock();
   // set everything
-  vmas[i].start = start;
-  vmas[i].offset = 0;
+  vma->start = start;
+  vma->offset = 0;
   // vmas[i].used_len = 0;
-  vmas[i].len = len;
+  vma->len = len;
   if ((prot & PROT_READ) && (f->readable)) { 
     printd("vma_alloc: adding read prot\n");
     real_prots |= PTE_R;
@@ -490,21 +499,28 @@ vma_alloc(uint64 start, size_t len, int prot, int flags, struct file* f)
     printd("vma_alloc: adding write and read prot\n");
     real_prots |= (PTE_W | PTE_R);
   } // set write bit if PROT_WRITE, gets read and write automatically
-  vmas[i].prot = real_prots;
-  vmas[i].flags = flags;
-  vmas[i].file = f;
-  vmas[i].in_use = 1;
+  vma->prot = real_prots;
+  vma->flags = flags;
+  vma->file = f;
+  vma->in_use = 1;
   release(&vmas_lock);
 
-  return vmas + i;
+  return vma;
 }
 
-void
-vma_copy(vma_t *vma)
+vma_t*
+vma_copy(vma_t *src_vma)
 {
-  acquire(&vmas_lock);
-  // call this with fork?
+  vma_t *vma = vma_find_and_lock();
+  vma->in_use = src_vma->in_use;
+  vma->start = src_vma->start;
+  vma->offset = src_vma->offset;
+  vma->len = src_vma->len;
+  vma->prot = src_vma->prot;
+  vma->flags = src_vma->flags;
+  vma->file = src_vma->file;
   release(&vmas_lock);
+  return vma;
 }
 
 void
@@ -522,6 +538,7 @@ vma_dealloc(vma_t *vma)
   vma->file = 0;
   vma->in_use = 0;
   release(&vmas_lock);
+  printd("vma_dealloc: returning\n");
 }
 
 // checks if a defined vma can include the given virtual memory. It does not check to see if it actually does or not
