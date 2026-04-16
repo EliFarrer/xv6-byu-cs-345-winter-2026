@@ -16,7 +16,7 @@ struct superblock;
 typedef struct vma_t {
   uint64 start; // absolute start of the space in memory (IMMUTABLE)
   uint64 offset;   // relative offset into memory (starts at 0)
-  uint64 used_len; // length of the actual mapped data (starts at 0) 
+//   uint64 used_len; // length of the actual mapped data (starts at 0) 
   size_t len;     // len (bytes) (IMMUTABLE)
   int prot;       // protections
   int flags;
@@ -226,7 +226,7 @@ void            virtio_disk_intr(void);
 // number of elements in fixed-size array
 #define NELEM(x) (sizeof(x)/sizeof((x)[0]))
 
-
+#define min(a, b) ((a) < (b) ? (a) : (b))
 
 #ifdef LAB_PGTBL
 // vmcopyin.c

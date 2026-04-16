@@ -480,12 +480,14 @@ vma_alloc(uint64 start, size_t len, int prot, int flags, struct file* f)
   // set everything
   vmas[i].start = start;
   vmas[i].offset = 0;
-  vmas[i].used_len = 0;
+  // vmas[i].used_len = 0;
   vmas[i].len = len;
   if ((prot & PROT_READ) && (f->readable)) { 
+    printd("vma_alloc: adding read prot\n");
     real_prots |= PTE_R;
   }  // set read bit if PROT_READ
-  if ((prot & PROT_WRITE) && (f->writable)) {
+  if ((prot & PROT_WRITE) && ((f->writable) || (flags & MAP_PRIVATE))) {
+    printd("vma_alloc: adding write and read prot\n");
     real_prots |= (PTE_W | PTE_R);
   } // set write bit if PROT_WRITE, gets read and write automatically
   vmas[i].prot = real_prots;
@@ -513,7 +515,7 @@ vma_dealloc(vma_t *vma)
   acquire(&vmas_lock);
   vma->start = 0;
   vma->offset = 0;
-  vma->used_len = 0;
+  // vma->used_len = 0;
   vma->len = 0;
   vma->prot = 0;
   vma->flags = 0;
@@ -537,7 +539,7 @@ int
 vma_contains(vma_t *vma, uint64 va) // unlocked (assumes it is called on the process's vmas)
 {
   // acquire(&vmas_lock);
-  int val = ((vma->start + vma->offset) <= va) && (va < (vma->start + vma->offset + vma->used_len));
+  int val = ((vma->start + vma->offset) <= va) && (va < (vma->start + vma->len));
   // release(&vmas_lock);
   return val;
 }
@@ -554,7 +556,7 @@ vma_print(vma_t *vma)
   printd("vma at %p\n", vma);
   printd("\tvma->start %lx\n", vma->start);
   printd("\tvma->offset %lx\n", vma->offset);
-  printd("\tvma->used_len %lx\n", vma->used_len);
+  // printd("\tvma->used_len %lx\n", vma->used_len);
   printd("\tvma->len %lx\n", vma->len);
   printd("\tvma->prot %x\n", vma->prot);
   printd("\tvma->flag %x\n", vma->flags);
