@@ -744,8 +744,8 @@ proc_munmap(uint64 addr, size_t len)
 {
   struct vma_t *vma;
   pte_t *pte;
-  int npages = PGROUNDUP(len) / PGSIZE;
-  int write_back = 0;
+  // int npages = PGROUNDUP(len) / PGSIZE;
+  int write_back, increment;
   // int f_offset;
   
   if ((len % PGSIZE) != 0) {
@@ -757,12 +757,6 @@ proc_munmap(uint64 addr, size_t len)
     printd("proc_munmap: could not find the vma with the addr\n");
     return -1; // find the vma
   }
-  if (vma_contains(vma, addr) != 1) {
-    printd("proc_munmap: found vma does not contain addr\n");
-    return -1;  // check that the given region is actuall contained within the actual mapping of the vma
-  }
-
-  // f_offset = vma->offset + (PGROUNDDOWN(addr) - vma->start);
 
   for (int i = 0; i < len; i += PGSIZE) {
     if ((pte = walk(myproc()->pagetable, addr + i, 0)) == 0) {
@@ -770,8 +764,8 @@ proc_munmap(uint64 addr, size_t len)
       return -1;  // pte doesn't exist
     }
 
-    write_back = min(PGSIZE, vma->len - (addr - vma->start));
-    write_back = min(write_back, vma->file->ip->size - vma->offset);
+    increment = min(PGSIZE, vma->len - (addr - vma->start));
+    write_back = min(increment, vma->file->ip->size - vma->offset);
     vma_print(vma);
 
     if ((*pte & PTE_D) && (vma->flags & MAP_SHARED) && (vma->prot & PROT_WRITE)) {
@@ -779,6 +773,7 @@ proc_munmap(uint64 addr, size_t len)
       ilock(vma->file->ip);
       printd("proc_munmap: writing at file offset %lx\n", vma->offset);
       printd("proc_munmap: writing amount %x\n", write_back);
+      printd("proc_munmap: increment amount %x\n", increment);
       int written = writei(vma->file->ip, 0, PTE2PA(*pte), vma->offset, write_back); // filewrite keeps track of an offset, writei doesn't
       if (written != write_back) {
         printd("written was not as was expected\n");
@@ -790,20 +785,23 @@ proc_munmap(uint64 addr, size_t len)
     // adjust vma bounds
     if ((vma->start) == addr + i) { // check if we unmap from the start
       printd("proc_munmap: updating start\n");
-      vma->start += write_back;
-      vma->offset += write_back;
-      vma->len -= write_back;
+      vma->start += increment;
+      vma->offset += increment;
+      vma->len -= increment;
     } else if ((vma->start + vma->len) == (addr + len)) {  // check if we unmap from the end
       printd("proc_munmap: updating end\n");
-      vma->len -= len;
+      vma->len -= increment;
     } else {
       panic("unhandled range in proc_munmap");
     }
     vma_print(vma);
+
+    if (*pte & PTE_V) {
+      uvmunmap(myproc()->pagetable, addr + i, 1, 1);
+    }
   }
 
   // free pages and remove from pagetable
-  uvmunmap(myproc()->pagetable, addr, npages, 1);
   sfence_vma();
   
   if (vma->len == 0) {
